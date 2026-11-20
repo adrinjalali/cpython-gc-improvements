@@ -1,0 +1,17 @@
+# CPython main (3.16.0a2+), instructions per call vs main (CPython main 4497fe9889 without patches), PYTHONHASHSEED=0, median of 3
+# columns: revive-addr = revive-in-address-order, non-moving = non-moving-mark
+# set(genexpr)/frozenset(genexpr): compiled inline on 3.15+, so they don't reach the set constructor
+# source-hint set(range(5)): +24 after switching its set source check to exact types (was +72)
+call                             main        gc-api          swap     revive-addr  non-moving     source-hint
+set(tuple)                       1845   +29 (+1.6%)   +20 (+1.1%)    +0 (+0.0%)    +0 (+0.0%)   +15 (+0.8%)
+set(range(5))                    2188   +27 (+1.2%)   +23 (+1.1%)    +0 (+0.0%)    +0 (+0.0%)   +24 (+1.1%)
+set(genexpr)                     4229    -7 (-0.2%)    +5 (+0.1%)    +5 (+0.1%)    +5 (+0.1%)   +10 (+0.2%)
+frozenset(genexpr)               4563    +3 (+0.1%)    +0 (+0.0%)    +0 (+0.0%)    -0 (-0.0%)    +5 (+0.1%)
+set(gen(t))                      4996  +104 (+2.1%)  +445 (+8.9%)    +0 (+0.0%)    -0 (-0.0%)  +127 (+2.5%)
+frozenset(gen(t))                5294  +104 (+2.0%)  +452 (+8.5%)    +0 (+0.0%)    +0 (+0.0%)  +122 (+2.3%)
+set(map(int, t))                 3258  +104 (+3.2%) +445 (+13.7%)    +0 (+0.0%)    -0 (-0.0%)  +127 (+3.9%)
+set(d.items())                   3892  +211 (+5.4%) +445 (+11.4%)    +0 (+0.0%)    +0 (+0.0%)  +229 (+5.9%)
+set(UserIterable())              3383  +211 (+6.2%) +445 (+13.2%)    +0 (+0.0%)    -0 (-0.0%)  +234 (+6.9%)
+s.union(genexpr)                 4848  +117 (+2.4%)  +450 (+9.3%)    +0 (+0.0%)    -0 (-0.0%)  +115 (+2.4%)
+s.intersection(iter(t))          1721  +103 (+6.0%) +439 (+25.5%)    +0 (+0.0%)    +0 (+0.0%)  +119 (+6.9%)
+s.symmetric_difference(map)      3575  +109 (+3.0%) +446 (+12.5%)    +0 (+0.0%)    -0 (-0.0%)  +122 (+3.4%)

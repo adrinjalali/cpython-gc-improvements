@@ -1,0 +1,29 @@
+# repro/gil_halfbuilt.py, conda-forge builds; 2026-11-19
+[py310]
+  # 3.10.22 
+  BROKEN 1 frozenset hashed while half-built: half-built frozenset seen at len 1; equal=False same_hash=False lookup_hits=False
+  OK     2 gc.collect() during set fill: len ok=True (alive 3000/3000); cycle through half-built set: True; all freed afterwards=True
+  OK     2 gc.collect() during frozenset fill: len ok=True (alive 3000/3000); cycle through half-built set: True; all freed afterwards=True
+  OK     3 half-built set mutated: half-built set mutated during fill; result consistent=True
+  BROKEN 4 another thread hashes gc.get_objects(): 77/78 frozensets built while another thread hashed gc objects are != an equal frozenset
+[py3146]
+  # 3.14.6 
+  BROKEN 1 frozenset hashed while half-built: half-built frozenset seen at len 1; equal=False same_hash=False lookup_hits=False
+  OK     2 gc.collect() during set fill: len ok=True (alive 3000/3000); cycle through half-built set: True; all freed afterwards=True
+  OK     2 gc.collect() during frozenset fill: len ok=True (alive 3000/3000); cycle through half-built set: True; all freed afterwards=True
+  OK     3 half-built set mutated: half-built set mutated during fill; result consistent=True
+  BROKEN 4 another thread hashes gc.get_objects(): 74/74 frozensets built while another thread hashed gc objects are != an equal frozenset
+[py31410]
+  # 3.14.10 
+  OK     1 frozenset hashed while half-built: half-built frozenset not reachable; equal=True same_hash=True lookup_hits=True
+  OK     2 gc.collect() during set fill: len ok=True (alive 3000/3000); cycle through half-built set: False; all freed afterwards=True
+  OK     2 gc.collect() during frozenset fill: len ok=True (alive 3000/3000); cycle through half-built set: False; all freed afterwards=True
+  OK     3 half-built set mutated: half-built set not reachable; result consistent=True
+  OK     4 another thread hashes gc.get_objects(): 0/74 frozensets built while another thread hashed gc objects are != an equal frozenset
+[py315]
+  # 3.15.2 
+  OK     1 frozenset hashed while half-built: half-built frozenset not reachable; equal=True same_hash=True lookup_hits=True
+  OK     2 gc.collect() during set fill: len ok=True (alive 3000/3000); cycle through half-built set: False; all freed afterwards=True
+  OK     2 gc.collect() during frozenset fill: len ok=True (alive 3000/3000); cycle through half-built set: False; all freed afterwards=True
+  OK     3 half-built set mutated: half-built set not reachable; result consistent=True
+  OK     4 another thread hashes gc.get_objects(): 0/72 frozensets built while another thread hashed gc objects are != an equal frozenset

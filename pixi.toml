@@ -1,0 +1,82 @@
+# Interpreters and a build toolchain for reproducing the set/GC-order slowdown.
+# See README.md. Examples:
+#
+#   pixi run -e py3146 perf              # 3.14.6, the last 3.14 release before gh-152235
+#   pixi run -e py31410 perf             # 3.14.10, with it
+#   pixi run -e ft3146 race              # free-threaded 3.14.6: the race gh-152235 fixed
+#   pixi run build-cpython main main/revive-in-address-order   # a patched build
+[workspace]
+name = "cpython-gc-improvements"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64"]
+
+# Last release of each branch before gh-152235's backport, and a later one with it:
+# 3.13.14 / 3.13.15+, 3.14.6 / 3.14.7+; every 3.15 release has it.
+[feature.py310.dependencies]
+python = "3.10.*"
+[feature.py312.dependencies]
+python = "3.12.*"
+[feature.py31314.dependencies]
+python = "==3.13.14"
+[feature.py31318.dependencies]
+python = "==3.13.18"
+[feature.py3146.dependencies]
+python = "==3.14.6"
+[feature.py31410.dependencies]
+python = "==3.14.10"
+[feature.py315.dependencies]
+python = "3.15.*"
+
+# Free-threaded (--disable-gil) builds.
+[feature.ft3146.dependencies]
+python = { version = "==3.14.6", build = "*_cp314t" }
+[feature.ft31410.dependencies]
+python = { version = "==3.14.10", build = "*_cp314t" }
+
+[feature.pandas.dependencies]
+pandas = "*"
+numpy = "<2.5"   # the versions the recorded results used
+[feature.pandas.tasks]
+pandas = "python repro/pandas_timestamps.py"
+
+# Toolchain and libraries to build CPython from source (tools/build-cpython.sh).
+[feature.build]
+platforms = ["linux-64"]
+[feature.build.dependencies]
+c-compiler = "*"
+make = "*"
+pkg-config = "*"
+libffi = "*"
+openssl = "*"
+zlib = "*"
+xz = "*"
+bzip2 = "*"
+libuuid = "*"
+ncurses = "*"
+readline = "*"
+sqlite = "*"
+python = "3.13.*"   # only as the "build python" configure looks for
+[feature.build.tasks]
+build-cpython = "bash tools/build-cpython.sh"
+
+# The reproducers; run them in any interpreter environment: pixi run -e ENV TASK
+[tasks]
+perf = "python repro/gc_order_perf.py --check-order"
+other-types = "python repro/other_types.py"
+race = "python repro/ft_race.py --kind set --rounds 100"
+race-frozenset = "python repro/ft_race.py --kind frozenset --rounds 100"
+gil = "python repro/gil_halfbuilt.py"
+
+[environments]
+py310 = ["py310"]
+py312 = ["py312"]
+py31314 = ["py31314"]
+py31318 = ["py31318"]
+py3146 = ["py3146"]
+py31410 = ["py31410"]
+py315 = ["py315"]
+ft3146 = ["ft3146"]
+ft31410 = ["ft31410"]
+pd3146 = ["py3146", "pandas"]
+pd31410 = ["py31410", "pandas"]
+build = { features = ["build"], no-default-feature = true }

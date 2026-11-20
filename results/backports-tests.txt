@@ -1,0 +1,107 @@
+# Tests per source build (.scratch/build/NAME): CPython suites (-R 3:3 on debug builds), repro/test_set_gc_order.py, repro/gil_halfbuilt.py, the set-before-elements check, repro/ft_race.py (free-threaded) and the tp_alloc C extension; 2026-11-19
+[main-gc-api] 3.16.0a2+dev
+  -m test test_set test_gc test_weakset test_finalization test_weakref : Total tests: run=926 skipped=6 Total test files: run=5/5 Result: SUCCESS
+  repro/test_set_gc_order.py: Ran 10 tests in 0.211s OK
+  gil_halfbuilt: OK     1 frozenset hashed while half-built: half-built froze
+  gil_halfbuilt: OK     2 gc.collect() during set fill: len ok=True (alive 30
+  gil_halfbuilt: OK     2 gc.collect() during frozenset fill: len ok=True (al
+  gil_halfbuilt: OK     3 half-built set mutated: half-built set not reachabl
+  gil_halfbuilt: OK     4 another thread hashes gc.get_objects(): 0/75 frozen
+  order:       6 set_first
+[main-revive-in-address-order] 3.16.0a2+dev
+  -m test test_set test_gc test_weakset test_finalization test_weakref : Total tests: run=923 skipped=6 Total test files: run=5/5 Result: SUCCESS
+[main-tp-alloc] 3.16.0a2+dev
+  -m test test_set test_gc test_weakset test_finalization test_weakref test_capi.test_set: Total tests: run=941 skipped=6 Total test files: run=6/6 Result: SUCCESS
+  ext: 3.16.0a2+dev: OK     CSet(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     CFrozen(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     PySet_New(borrowed generator dropped mid-fill) x200
+[main-tp-alloc-debug] 3.16.0a2+dev
+  -m test -R 3:3 test_set test_gc test_weakset test_finalization test_weakref test_capi.test_set: Total tests: run=941 skipped=5 Total test files: run=6/6 Result: SUCCESS
+[main-tp-alloc-ft] 3.16.0a2+dev
+  -m test test_set test_gc test_capi.test_set: Total tests: run=726 skipped=7 Total test files: run=3/3 Result: SUCCESS
+  ext: <frozen importlib._bootstrap>:490: RuntimeWarning: The global interpreter lock (GIL) has been enabled to load module 'csetsub', which has not declared that it can run safely without the GIL. To override this behavior and keep the GIL disabled (at your own risk), run with PYTHON_GIL=0 or -Xgil=0.
+[v3.15.2-gc-api] 3.15.2
+  -m test test_set test_gc test_weakset test_finalization test_weakref : Total tests: run=913 skipped=6 Total test files: run=5/5 Result: SUCCESS
+  repro/test_set_gc_order.py: Ran 10 tests in 0.223s OK
+  gil_halfbuilt: OK     1 frozenset hashed while half-built: half-built froze
+  gil_halfbuilt: OK     2 gc.collect() during set fill: len ok=True (alive 30
+  gil_halfbuilt: OK     2 gc.collect() during frozenset fill: len ok=True (al
+  gil_halfbuilt: OK     3 half-built set mutated: half-built set not reachabl
+  gil_halfbuilt: OK     4 another thread hashes gc.get_objects(): 0/74 frozen
+  order:       6 set_first
+[v3.15.2-gc-api-debug] 3.15.2
+  -m test -R 3:3 test_set test_gc test_weakset test_finalization test_weakref : test_gc leaked [1, 0, 0] memory blocks, sum=1 (this is fine) Total tests: run=913 skipped=5 Total test files: run=5/5 Result: SUCCESS
+  repro/test_set_gc_order.py: Ran 10 tests in 0.984s OK
+[v3.15.2-gc-api-ft] 3.15.2
+  -m test test_set test_gc test_capi.test_set: Total tests: run=727 skipped=9 Total test files: run=3/3 Result: SUCCESS
+  repro/test_set_gc_order.py: Ran 10 tests in 0.071s OK (skipped=3)
+  ft_race set: 3.15.2 set: leaked the half-built set in 0/50 rounds; inconsistent reads: 0
+  ft_race frozenset: 3.15.2 frozenset: leaked the half-built set in 0/50 rounds; inconsistent reads: 0
+[v3.15.2-revive-in-address-order] 3.15.2
+  -m test test_set test_gc test_weakset test_finalization test_weakref : Total tests: run=910 skipped=6 Total test files: run=5/5 Result: SUCCESS
+[v3.15.2-revive-in-address-order-debug] 3.15.2
+  -m test -R 3:3 test_set test_gc test_weakset test_finalization test_weakref : Total tests: run=910 skipped=5 Total test files: run=5/5 Result: SUCCESS
+[v3.15.2-tp-alloc] 3.15.2
+  -m test test_set test_gc test_weakset test_finalization test_weakref test_capi.test_set: Total tests: run=928 skipped=6 Total test files: run=6/6 Result: SUCCESS
+  ext: 3.15.2: OK     CSet(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     CFrozen(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     PySet_New(borrowed generator dropped mid
+[v3.15.2-tp-alloc-debug] 3.15.2
+  -m test -R 3:3 test_set test_gc test_weakset test_finalization test_weakref test_capi.test_set: Total tests: run=928 skipped=5 Total test files: run=6/6 Result: SUCCESS
+[v3.15.2-tp-alloc-ft] 3.15.2
+  -m test test_set test_gc test_capi.test_set: Total tests: run=724 skipped=7 Total test files: run=3/3 Result: SUCCESS
+  ext: OK     CSet(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     CFrozen(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     PySet_New(borrowed generator dropped mid-fill) x
+[v3.14.10-gc-api] 3.14.10
+  -m test test_set test_gc test_weakset test_finalization test_weakref : Total tests: run=896 skipped=6 Total test files: run=5/5 Result: SUCCESS
+  repro/test_set_gc_order.py: Ran 10 tests in 0.214s OK
+  gil_halfbuilt: OK     1 frozenset hashed while half-built: half-built froze
+  gil_halfbuilt: OK     2 gc.collect() during set fill: len ok=True (alive 30
+  gil_halfbuilt: OK     2 gc.collect() during frozenset fill: len ok=True (al
+  gil_halfbuilt: OK     3 half-built set mutated: half-built set not reachabl
+  gil_halfbuilt: OK     4 another thread hashes gc.get_objects(): 0/80 frozen
+  order:       6 set_first
+[v3.14.10-gc-api-debug] 3.14.10
+  -m test -R 3:3 test_set test_gc test_weakset test_finalization test_weakref : test_gc leaked [1, 0, 0] memory blocks, sum=1 (this is fine) Total tests: run=896 skipped=5 Total test files: run=5/5 Result: SUCCESS
+  repro/test_set_gc_order.py: Ran 10 tests in 0.924s OK
+[v3.14.10-gc-api-ft] 3.14.10
+  -m test test_set test_gc test_capi.test_set: Total tests: run=710 skipped=8 Total test files: run=3/3 Result: SUCCESS
+  repro/test_set_gc_order.py: Ran 10 tests in 0.062s OK (skipped=3)
+  ft_race set: 3.14.10 set: leaked the half-built set in 0/50 rounds; inconsistent reads: 0
+  ft_race frozenset: 3.14.10 frozenset: leaked the half-built set in 0/50 rounds; inconsistent reads: 0
+[v3.14.10-revive-in-address-order] 3.14.10
+  -m test test_set test_gc test_weakset test_finalization test_weakref : Total tests: run=893 skipped=6 Total test files: run=5/5 Result: SUCCESS
+[v3.14.10-revive-in-address-order-debug] 3.14.10
+  -m test -R 3:3 test_set test_gc test_weakset test_finalization test_weakref : test_gc leaked [1, 0, 0] memory blocks, sum=1 (this is fine) Total tests: run=893 skipped=5 Total test files: run=5/5 Result: SUCCESS
+[v3.14.10-tp-alloc] 3.14.10
+  -m test test_set test_gc test_weakset test_finalization test_weakref test_capi.test_set: Total tests: run=910 skipped=6 Total test files: run=6/6 Result: SUCCESS
+  ext: 3.14.10: OK     CSet(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     CFrozen(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     PySet_New(borrowed generator dropped mi
+[v3.14.10-tp-alloc-debug] 3.14.10
+  -m test -R 3:3 test_set test_gc test_weakset test_finalization test_weakref test_capi.test_set: Total tests: run=910 skipped=5 Total test files: run=6/6 Result: SUCCESS
+[v3.14.10-tp-alloc-ft] 3.14.10
+  -m test test_set test_gc test_capi.test_set: Total tests: run=707 skipped=6 Total test files: run=3/3 Result: SUCCESS
+  ext: OK     CSet(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     CFrozen(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     PySet_New(borrowed generator dropped mid-fill) x
+[v3.13.18-gc-api] 3.13.18
+  -m test test_set test_gc test_weakset test_finalization test_weakref : Total tests: run=886 skipped=3 Total test files: run=5/5 Result: SUCCESS
+  repro/test_set_gc_order.py: Ran 10 tests in 0.206s OK
+  gil_halfbuilt: OK     1 frozenset hashed while half-built: half-built froze
+  gil_halfbuilt: OK     2 gc.collect() during set fill: len ok=True (alive 30
+  gil_halfbuilt: OK     2 gc.collect() during frozenset fill: len ok=True (al
+  gil_halfbuilt: OK     3 half-built set mutated: half-built set not reachabl
+  gil_halfbuilt: OK     4 another thread hashes gc.get_objects(): 0/80 frozen
+  order:       6 set_first
+[v3.13.18-gc-api-debug] 3.13.18
+  -m test -R 3:3 test_set test_gc test_weakset test_finalization test_weakref : Total tests: run=886 skipped=2 Total test files: run=5/5 Result: SUCCESS
+  repro/test_set_gc_order.py: Ran 10 tests in 0.757s OK
+[v3.13.18-gc-api-ft] 3.13.18
+  -m test test_set test_gc test_capi.test_set: Total tests: run=702 skipped=5 Total test files: run=3/3 Result: SUCCESS
+  repro/test_set_gc_order.py: Ran 10 tests in 0.074s OK (skipped=3)
+  ft_race set: 3.13.18 set: leaked the half-built set in 0/50 rounds; inconsistent reads: 0
+  ft_race frozenset: 3.13.18 frozenset: leaked the half-built set in 0/50 rounds; inconsistent reads: 0
+[v3.13.18-revive-in-address-order] 3.13.18
+  -m test test_set test_gc test_weakset test_finalization test_weakref : Total tests: run=883 skipped=3 Total test files: run=5/5 Result: SUCCESS
+[v3.13.18-revive-in-address-order-debug] 3.13.18
+  -m test -R 3:3 test_set test_gc test_weakset test_finalization test_weakref : Total tests: run=883 skipped=2 Total test files: run=5/5 Result: SUCCESS
+[v3.13.18-tp-alloc] 3.13.18
+  -m test test_set test_gc test_weakset test_finalization test_weakref test_capi.test_set: Total tests: run=900 skipped=3 Total test files: run=6/6 Result: SUCCESS
+  ext: 3.13.18: OK     CSet(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     CFrozen(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     PySet_New(borrowed generator dropped mid-fill) x200
+[v3.13.18-tp-alloc-debug] 3.13.18
+  -m test -R 3:3 test_set test_gc test_weakset test_finalization test_weakref test_capi.test_set: Total tests: run=900 skipped=2 Total test files: run=6/6 Result: SUCCESS
+[v3.13.18-tp-alloc-ft] 3.13.18
+  -m test test_set test_gc test_capi.test_set: Total tests: run=699 skipped=3 Total test files: run=3/3 Result: SUCCESS
+  ext: OK     CSet(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     CFrozen(gen) x100: custom tp_alloc ran 100 times, all tracked=True OK     PySet_New(borrowed generator dropped mid-fill) x

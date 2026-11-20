@@ -1,0 +1,74 @@
+# repro/gc_order_perf.py --check-order, conda-forge interpreters (tools/run-matrix.sh); 2026-11-19; load average: 7.08, 28.52, 26.98
+[py310]
+  # 3.10.22 n=1,000,000
+  set(gen)                           1st   0.12s  2nd   0.12s  set_first
+  frozenset(gen)                     1st   0.12s  2nd   0.12s  set_first
+  set().union(gen)                   1st   0.12s  2nd   0.12s  set_first
+  set().symmetric_difference(gen)    1st   0.12s  2nd   0.12s  set_first
+  s=set(); s.update(gen)             1st   0.12s  2nd   0.12s  set_first
+  {x for x in gen}                   1st   0.12s  2nd   0.12s  set_first
+[py312]
+  # 3.12.16 n=1,000,000
+  set(gen)                           1st   0.12s  2nd   0.12s  set_first
+  frozenset(gen)                     1st   0.12s  2nd   0.12s  set_first
+  set().union(gen)                   1st   0.12s  2nd   0.12s  set_first
+  set().symmetric_difference(gen)    1st   0.12s  2nd   0.12s  set_first
+  s=set(); s.update(gen)             1st   0.12s  2nd   0.12s  set_first
+  {x for x in gen}                   1st   0.12s  2nd   0.12s  set_first
+[py31314]
+  # 3.13.14 n=1,000,000
+  set(gen)                           1st   0.12s  2nd   0.12s  set_first
+  frozenset(gen)                     1st   0.12s  2nd   0.12s  set_first
+  set().union(gen)                   1st   0.12s  2nd   0.12s  set_first
+  set().symmetric_difference(gen)    1st   0.12s  2nd   0.12s  set_first
+  s=set(); s.update(gen)             1st   0.12s  2nd   0.12s  set_first
+  {x for x in gen}                   1st   0.12s  2nd   0.12s  set_first
+[py31318]
+  # 3.13.18 n=1,000,000
+  set(gen)                           1st   0.96s  2nd   1.35s  ELEMENTS_FIRST
+  frozenset(gen)                     1st   0.91s  2nd   1.28s  ELEMENTS_FIRST
+  set().union(gen)                   1st   0.94s  2nd   1.26s  ELEMENTS_FIRST
+  set().symmetric_difference(gen)    1st   0.94s  2nd   1.38s  ELEMENTS_FIRST
+  s=set(); s.update(gen)             1st   0.12s  2nd   0.12s  set_first
+  {x for x in gen}                   1st   0.12s  2nd   0.12s  set_first
+[py3146]
+  # 3.14.6 n=1,000,000
+  set(gen)                           1st   0.11s  2nd   0.11s  set_first
+  frozenset(gen)                     1st   0.11s  2nd   0.11s  set_first
+  set().union(gen)                   1st   0.11s  2nd   0.11s  set_first
+  set().symmetric_difference(gen)    1st   0.11s  2nd   0.11s  set_first
+  s=set(); s.update(gen)             1st   0.11s  2nd   0.11s  set_first
+  {x for x in gen}                   1st   0.11s  2nd   0.11s  set_first
+[py31410]
+  # 3.14.10 n=1,000,000
+  set(gen)                           1st   0.78s  2nd   1.12s  ELEMENTS_FIRST
+  frozenset(gen)                     1st   0.74s  2nd   1.07s  ELEMENTS_FIRST
+  set().union(gen)                   1st   0.75s  2nd   1.11s  ELEMENTS_FIRST
+  set().symmetric_difference(gen)    1st   0.74s  2nd   1.07s  ELEMENTS_FIRST
+  s=set(); s.update(gen)             1st   0.12s  2nd   0.11s  set_first
+  {x for x in gen}                   1st   0.11s  2nd   0.11s  set_first
+[py315]
+  # 3.15.2 n=1,000,000
+  set(gen)                           1st   0.88s  2nd   1.12s  ELEMENTS_FIRST
+  frozenset(gen)                     1st   0.79s  2nd   1.16s  ELEMENTS_FIRST
+  set().union(gen)                   1st   0.76s  2nd   1.21s  ELEMENTS_FIRST
+  set().symmetric_difference(gen)    1st   0.76s  2nd   1.10s  ELEMENTS_FIRST
+  s=set(); s.update(gen)             1st   0.11s  2nd   0.11s  set_first
+  {x for x in gen}                   1st   0.11s  2nd   0.11s  set_first
+[ft3146]
+  # 3.14.6 n=1,000,000
+  set(gen)                           1st   0.08s  2nd   0.09s  ELEMENTS_FIRST
+  frozenset(gen)                     1st   0.09s  2nd   0.09s  set_first
+  set().union(gen)                   1st   0.08s  2nd   0.09s  set_first
+  set().symmetric_difference(gen)    1st   0.09s  2nd   0.09s  set_first
+  s=set(); s.update(gen)             1st   0.09s  2nd   0.09s  set_first
+  {x for x in gen}                   1st   0.09s  2nd   0.09s  set_first
+[ft31410]
+  # 3.14.10 n=1,000,000
+  set(gen)                           1st   0.09s  2nd   0.09s  ELEMENTS_FIRST
+  frozenset(gen)                     1st   0.09s  2nd   0.09s  set_first
+  set().union(gen)                   1st   0.09s  2nd   0.09s  set_first
+  set().symmetric_difference(gen)    1st   0.10s  2nd   0.10s  set_first
+  s=set(); s.update(gen)             1st   0.10s  2nd   0.10s  set_first
+  {x for x in gen}                   1st   0.12s  2nd   0.11s  set_first
+# at the end: load average: 21.02, 22.99, 24.95

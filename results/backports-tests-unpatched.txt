@@ -1,0 +1,17 @@
+# The tests each patch set adds, run with the unpatched interpreter (expected: FAILED), and the tp_alloc C-extension check; 2026-11-19
+[main]
+  gc-api tests (test_set.TestGCTracking): FAILED (failures=6)
+  revive-in-address-order test (test_gc): FAILED (failures=1)
+  tp_alloc ext check: 3.16.0a2+dev: BROKEN CSet(gen) x100: custom tp_alloc ran 0 times, all tracked=True BROKEN CFrozen(gen) x100: custom tp_alloc ran 0 times, all tracked=True OK     PySet_Ne
+[v3.15.2]
+  gc-api tests (test_set.TestGCTracking): FAILED (failures=6)
+  revive-in-address-order test (test_gc): FAILED (failures=1)
+  tp_alloc ext check: 3.15.2: BROKEN CSet(gen) x100: custom tp_alloc ran 0 times, all tracked=True BROKEN CFrozen(gen) x100: custom tp_alloc ran 0 times, all tracked=True OK     PySet_New(borr
+[v3.14.10]
+  gc-api tests (test_set.TestGCTracking): FAILED (failures=6)
+  revive-in-address-order test (test_gc): FAILED (failures=1)
+  tp_alloc ext check: 3.14.10: BROKEN CSet(gen) x100: custom tp_alloc ran 0 times, all tracked=True BROKEN CFrozen(gen) x100: custom tp_alloc ran 0 times, all tracked=True OK     PySet_New(bor
+[v3.13.18]
+  gc-api tests (test_set.TestGCTracking): FAILED (failures=6)
+  revive-in-address-order test (test_gc): FAILED (failures=1)
+  tp_alloc ext check: 3.13.18: BROKEN CSet(gen) x100: custom tp_alloc ran 0 times, all tracked=True BROKEN CFrozen(gen) x100: custom tp_alloc ran 0 times, all tracked=True OK     PySet_New(bor

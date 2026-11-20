@@ -1,0 +1,79 @@
+# repro/other_types.py, 2nd full collection after building (1M elements); 2026-11-19; load average: 4.51, 14.18, 21.13
+[py310]
+# 3.10.22
+set(gen)                             0.12s
+set([listcomp]) (list dropped)       1.44s
+frozenset(tuple(gen))                1.35s
+s.update(gen)                        0.12s
+dict(gen of items)                   0.05s
+dict(zip(range, [listcomp]))         0.05s
+frozendict(gen of items)           (no frozendict)
+tuple(gen)                           0.05s
+list(gen)                            0.04s
+[py3146]
+# 3.14.6
+set(gen)                             0.11s
+set([listcomp]) (list dropped)       1.18s
+frozenset(tuple(gen))                1.15s
+s.update(gen)                        0.11s
+dict(gen of items)                   0.05s
+dict(zip(range, [listcomp]))         0.04s
+frozendict(gen of items)           (no frozendict)
+tuple(gen)                           0.04s
+list(gen)                            0.04s
+[py31410]
+# 3.14.10
+set(gen)                             1.16s
+set([listcomp]) (list dropped)       1.16s
+frozenset(tuple(gen))                1.16s
+s.update(gen)                        0.12s
+dict(gen of items)                   0.04s
+dict(zip(range, [listcomp]))         0.04s
+frozendict(gen of items)           (no frozendict)
+tuple(gen)                           0.04s
+list(gen)                            0.04s
+[py315]
+# 3.15.2
+set(gen)                             1.18s
+set([listcomp]) (list dropped)       1.14s
+frozenset(tuple(gen))                1.17s
+s.update(gen)                        0.12s
+dict(gen of items)                   0.05s
+dict(zip(range, [listcomp]))         0.04s
+frozendict(gen of items)             0.04s
+tuple(gen)                           0.04s
+list(gen)                            0.04s
+[main]
+# 3.16.0a2+dev
+set(gen)                             0.74s
+set([listcomp]) (list dropped)       0.70s
+frozenset(tuple(gen))                0.72s
+s.update(gen)                        0.11s
+dict(gen of items)                   0.04s
+dict(zip(range, [listcomp]))         0.04s
+frozendict(gen of items)             0.04s
+tuple(gen)                           0.04s
+list(gen)                            0.03s
+[main-gc-api]
+# 3.16.0a2+dev
+set(gen)                             0.10s
+set([listcomp]) (list dropped)       0.74s
+frozenset(tuple(gen))                0.74s
+s.update(gen)                        0.10s
+dict(gen of items)                   0.04s
+dict(zip(range, [listcomp]))         0.04s
+frozendict(gen of items)             0.04s
+tuple(gen)                           0.04s
+list(gen)                            0.03s
+[main-revive-in-address-order]
+# 3.16.0a2+dev
+set(gen)                             0.11s
+set([listcomp]) (list dropped)       0.11s
+frozenset(tuple(gen))                0.11s
+s.update(gen)                        0.11s
+dict(gen of items)                   0.04s
+dict(zip(range, [listcomp]))         0.04s
+frozendict(gen of items)             0.04s
+tuple(gen)                           0.04s
+list(gen)                            0.04s
+# at the end: load average: 3.40, 10.90, 19.20

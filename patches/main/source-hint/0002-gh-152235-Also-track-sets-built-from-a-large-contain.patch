@@ -1,0 +1,146 @@
+From 2537b27607d4e7e780aaaa57faefe3365f1e4666 Mon Sep 17 00:00:00 2001
+From: Adrin Jalali <adrin.jalali@gmail.com>
+Date: Tue, 17 Nov 2026 20:34:34 +0000
+Subject: [PATCH 2/2] gh-152235: Also track sets built from a large container
+ at its position
+
+On top of tracking sets filled from an iterator at a reserved position: a
+set built from a list, tuple, dict, set or frozenset with 1024 or more
+elements is tracked right after that container in the GC list.  The
+container was usually tracked ahead of the elements it holds, so the set
+stays ahead of them when it becomes their only owner (s = set(big_list);
+del big_list), and full collections don't scatter them.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Lib/test/test_set.py                          | 15 ++++++
+ ...-11-17-16-45-23.gh-issue-152235.ucKd9I.rst |  5 --
+ ...-11-17-20-16-11.gh-issue-152235.CuViYU.rst |  6 +++
+ Objects/setobject.c                           | 48 ++++++++++++++++---
+ 4 files changed, 63 insertions(+), 11 deletions(-)
+ delete mode 100644 Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-16-45-23.gh-issue-152235.ucKd9I.rst
+ create mode 100644 Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-20-16-11.gh-issue-152235.CuViYU.rst
+
+diff --git a/Lib/test/test_set.py b/Lib/test/test_set.py
+index 8fa0a09e0a2..3310cb9e864 100644
+--- a/Lib/test/test_set.py
++++ b/Lib/test/test_set.py
+@@ -2280,6 +2280,21 @@ def test_tracked_ahead_of_new_elements(self):
+                          for i, o in enumerate(gc.get_objects(generation=0))}
+                 self.assertLess(order[id(s)], min(order[id(e)] for e in s))
+ 
++    @support.requires_gil_enabled("the free-threaded GC has no list order")
++    def test_tracked_ahead_of_source_elements(self):
++        # A set built from a large container that then goes away takes the
++        # container's place in the GC list, ahead of the elements.  (A dict is
++        # only tracked once it holds its first element.)
++        for name, make, allowed in (('list', list, 0), ('dict', dict.fromkeys, 1)):
++            with self.subTest(name), support.disable_gc():
++                source = make(Elem(i) for i in range(2000))
++                s = set(source)
++                del source
++                order = {id(o): i
++                         for i, o in enumerate(gc.get_objects(generation=0))}
++                behind = sum(order[id(e)] < order[id(s)] for e in s)
++                self.assertLessEqual(behind, allowed)
++
+     def test_not_reachable_while_filled(self):
+         for name, build in self.builders().items():
+             with self.subTest(name):
+diff --git a/Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-16-45-23.gh-issue-152235.ucKd9I.rst b/Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-16-45-23.gh-issue-152235.ucKd9I.rst
+deleted file mode 100644
+index 9542465765a..00000000000
+--- a/Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-16-45-23.gh-issue-152235.ucKd9I.rst
++++ /dev/null
+@@ -1,5 +0,0 @@
+-Fix full garbage collections becoming up to ten times slower after a large
+-:class:`set` or :class:`frozenset` is built from an iterator that creates its
+-elements, such as a generator.  The new set is again tracked by the garbage
+-collector ahead of those elements, and is still not reachable through
+-:func:`gc.get_objects` until it is complete.
+diff --git a/Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-20-16-11.gh-issue-152235.CuViYU.rst b/Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-20-16-11.gh-issue-152235.CuViYU.rst
+new file mode 100644
+index 00000000000..cc0633ea134
+--- /dev/null
++++ b/Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-20-16-11.gh-issue-152235.CuViYU.rst
+@@ -0,0 +1,6 @@
++Fix full garbage collections becoming up to ten times slower after a large
++:class:`set` or :class:`frozenset` is built from an iterator that creates its
++elements, such as a generator, or from a large list, tuple or dict that then
++goes away.  The new set is tracked by the garbage collector ahead of the
++elements, and is still not reachable through :func:`gc.get_objects` until it
++is complete.
+diff --git a/Objects/setobject.c b/Objects/setobject.c
+index dab173f6c49..4409135adb8 100644
+--- a/Objects/setobject.c
++++ b/Objects/setobject.c
+@@ -1395,16 +1395,51 @@ fill_may_create_tracked_elements(PyTypeObject *tp)
+ // reserve the set's place in the GC list ahead of them before the fill, or
+ // a full collection scatters them in memory.  An iterator is already ahead of
+ // everything it yields, so it can lend its position.
++//
++// A set filled from a large container may also become the only owner of the
++// elements, once the container goes away (s = set(big_list); del big_list):
++// a full collection then scatters them the same way.  The container was
++// usually tracked ahead of the elements it holds, so it lends its position
++// too.  Small sets are left alone: scattered or not, they fit in a cache.
++#define SET_SOURCE_POSITION_MIN_SIZE 1024
++
++static inline int
++use_source_position(PyObject *iterable)
++{
++    Py_ssize_t n;
++    if (PyList_Check(iterable)) {
++        n = PyList_GET_SIZE(iterable);
++    }
++    else if (PyTuple_Check(iterable)) {
++        n = PyTuple_GET_SIZE(iterable);
++    }
++    else if (PyDict_Check(iterable)) {
++        n = PyDict_GET_SIZE(iterable);
++    }
++    else if (PySet_CheckExact(iterable) || PyFrozenSet_CheckExact(iterable)) {
++        n = PySet_GET_SIZE(iterable);
++    }
++    else {
++        return 0;
++    }
++    return n >= SET_SOURCE_POSITION_MIN_SIZE
++           && _PyObject_GC_IS_TRACKED(iterable);
++}
++
+ static int
+ reserve_gc_position(PyObject *iterable, _PyGC_Position *pos)
+ {
+-    if (iterable == NULL
+-        || !fill_may_create_tracked_elements(Py_TYPE(iterable)))
+-    {
++    if (iterable == NULL) {
+         return 0;
+     }
+-    PyObject *hint = PyIter_Check(iterable) ? iterable : NULL;
+-    return _PyGC_ReservePosition(pos, hint);
++    if (fill_may_create_tracked_elements(Py_TYPE(iterable))) {
++        PyObject *hint = PyIter_Check(iterable) ? iterable : NULL;
++        return _PyGC_ReservePosition(pos, hint);
++    }
++    if (use_source_position(iterable)) {
++        return _PyGC_ReservePosition(pos, iterable);
++    }
++    return 0;
+ }
+ 
+ // _PyObject_GC_TrackAtPosition() handles an unreserved position too, but
+@@ -1440,7 +1475,8 @@ static PyObject *
+ make_new_set(PyTypeObject *type, PyObject *iterable)
+ {
+     if (iterable != NULL
+-        && fill_may_create_tracked_elements(Py_TYPE(iterable)))
++        && (fill_may_create_tracked_elements(Py_TYPE(iterable))
++            || use_source_position(iterable)))
+     {
+         return make_new_set_at_gc_position(type, iterable);
+     }
+-- 
+2.43.7
+

@@ -1,0 +1,528 @@
+From 0097eaad5ed46456fe0e220c15ac14fcd22d52d3 Mon Sep 17 00:00:00 2001
+From: Adrin Jalali <adrin.jalali@gmail.com>
+Date: Thu, 19 Nov 2026 15:57:51 +0000
+Subject: [PATCH] [3.13] gh-152235: Track sets filled from an iterator ahead of
+ the new elements
+
+Since gh-152235, set(iterable), frozenset(iterable), set.union(),
+set.intersection() and set.symmetric_difference() only GC-track the new
+set once it is full, so that it can't be reached half-built.  When the
+iterable creates the elements, as a generator does, the set then sits
+behind them in the GC list: a full collection reaches the elements first,
+parks them as tentatively unreachable and, once it reaches the set, moves
+them back in hash order.  That scatters them in memory, and every later
+full collection is up to ten times slower.
+
+Add an internal GC API to track an object at a position reserved before
+it was filled, _PyGC_ReservePosition() and _PyObject_GC_TrackAtPosition(),
+and use it in those set constructors.  The iterator being consumed lends
+its position when that is safe; otherwise a placeholder is tracked.  The
+half-built set is still not reachable through the GC.
+
+Backport note: in 3.13, set.union() receives its arguments as a tuple, and the GC state has no heap_size counter to update.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Include/internal/pycore_gc.h                  |  39 +++++++
+ Lib/test/test_set.py                          |  91 +++++++++++++++
+ Misc/ACKS                                     |   1 +
+ ...-11-17-16-45-23.gh-issue-152235.ucKd9I.rst |   5 +
+ Objects/setobject.c                           | 107 ++++++++++++++++--
+ Python/gc.c                                   |  77 +++++++++++++
+ Python/gc_free_threading.c                    |  24 ++++
+ 7 files changed, 335 insertions(+), 9 deletions(-)
+ create mode 100644 Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-16-45-23.gh-issue-152235.ucKd9I.rst
+
+diff --git a/Include/internal/pycore_gc.h b/Include/internal/pycore_gc.h
+index 357177b..dd029f2 100644
+--- a/Include/internal/pycore_gc.h
++++ b/Include/internal/pycore_gc.h
+@@ -332,6 +332,45 @@ struct _gc_thread_state {
+ };
+ #endif
+ 
++/* Track an object at a position reserved before it was filled in.
++ *
++ * A container that is only tracked once it is complete, so that it can't be
++ * reached half-built (for example through gc.get_objects()), ends up behind
++ * the objects created while it was filled.  A full collection then meets
++ * those objects first and, once it reaches the container, moves them back in
++ * its traversal order.  For a set that is hash order, which scatters the
++ * elements in memory and makes later collections much slower (gh-152235).
++ * Reserving a position before the fill keeps the list in creation order:
++ *
++ *     _PyGC_Position pos = _PyGC_POSITION_INIT;
++ *     if (_PyGC_ReservePosition(&pos, hint) < 0) {
++ *         return NULL;
++ *     }
++ *     ... fill op, which is not tracked ...
++ *     _PyObject_GC_TrackAtPosition(op, &pos);  // or _PyGC_ReleasePosition()
++ *
++ * 'hint' may be NULL, or an object that is ahead in the GC list of everything
++ * the fill creates, such as the iterator being consumed: its position is used
++ * when that is safe, and otherwise a placeholder is tracked.  An unreserved
++ * position tracks the object normally.  In the free-threaded build, where
++ * objects are not kept in lists, these track the object normally too.
++ */
++typedef struct {
++    PyObject *anchor;   // strong reference, or NULL
++    int is_placeholder;
++} _PyGC_Position;
++
++#define _PyGC_POSITION_INIT {NULL, 0}
++
++// Return 0 on success, or -1 with an exception set.
++extern int _PyGC_ReservePosition(_PyGC_Position *pos, PyObject *hint);
++
++// Release a reserved position without tracking anything.
++extern void _PyGC_ReleasePosition(_PyGC_Position *pos);
++
++// Track op, which must not be tracked, at pos, and release pos.
++extern void _PyObject_GC_TrackAtPosition(PyObject *op, _PyGC_Position *pos);
++
+ 
+ extern void _PyGC_InitState(struct _gc_runtime_state *);
+ 
+diff --git a/Lib/test/test_set.py b/Lib/test/test_set.py
+index bc0fa55..cce338b 100644
+--- a/Lib/test/test_set.py
++++ b/Lib/test/test_set.py
+@@ -2183,6 +2183,97 @@ def test_cuboctahedron(self):
+                 self.assertIn(cubevert, g)
+ 
+ 
++#==============================================================================
++
++class Elem:
++    def __init__(self, value):
++        self.value = value
++    def __hash__(self):
++        return hash(self.value)
++    def __eq__(self, other):
++        return isinstance(other, Elem) and self.value == other.value
++
++
++class Iterable:
++    # Not an iterator itself.
++    def __init__(self, iterator):
++        self.iterator = iterator
++    def __iter__(self):
++        return self.iterator
++
++
++@support.cpython_only
++class TestGCTracking(unittest.TestCase):
++    # gh-152235: a set filled from an iterable isn't reachable through the GC
++    # until it is complete, but is tracked ahead of the elements the fill
++    # created, so that full collections don't scatter them in memory.
++
++    def builders(self):
++        base = set(map(Elem, range(100)))
++        return {
++            'set': set,
++            'frozenset': frozenset,
++            'set(non-iterator)': lambda it: set(Iterable(it)),
++            'union': set().union,
++            'intersection': base.intersection,
++            'symmetric_difference': set().symmetric_difference,
++        }
++
++    @support.requires_gil_enabled("the free-threaded GC has no list order")
++    def test_tracked_ahead_of_new_elements(self):
++        for name, build in self.builders().items():
++            with self.subTest(name), support.disable_gc():
++                s = build(Elem(i) for i in range(100))
++                order = {id(o): i
++                         for i, o in enumerate(gc.get_objects(generation=0))}
++                self.assertLess(order[id(s)], min(order[id(e)] for e in s))
++
++    def test_not_reachable_while_filled(self):
++        for name, build in self.builders().items():
++            with self.subTest(name):
++                first = Elem(0)
++                found = []
++                def gen():
++                    yield first
++                    found.extend(r for r in gc.get_referrers(first)
++                                 if isinstance(r, (set, frozenset)))
++                    yield from map(Elem, range(1, 100))
++                s = build(gen())
++                self.assertIn(first, s)
++                self.assertEqual(found, [])
++
++    @support.requires_gil_enabled("the free-threaded GC has no list order")
++    def test_freeze_during_fill(self):
++        # The iterator is frozen while it is consumed: the set must not be
++        # tracked next to it, in the permanent generation.
++        def gen():
++            yield Elem(0)
++            gc.freeze()
++            yield Elem(1)
++        try:
++            s = set(gen())
++            self.assertIn(id(s), {id(o) for o in gc.get_objects()})
++        finally:
++            gc.unfreeze()
++
++    def test_fill_from_garbage_in_finalizer(self):
++        # A finalizer run by a collection fills a set from an iterator that
++        # is garbage in that same collection.
++        results = []
++        class Holder:
++            def __init__(self):
++                self.iterator = map(Elem, range(10))
++                self.cycle = self
++            def __del__(self):
++                results.append(set(self.iterator))
++        Holder()
++        gc.collect()
++        gc.collect()
++        self.assertEqual(len(results), 1)
++        self.assertEqual(results[0], set(map(Elem, range(10))))
++        self.assertTrue(gc.is_tracked(results[0]))
++
++
+ #==============================================================================
+ 
+ if __name__ == "__main__":
+diff --git a/Misc/ACKS b/Misc/ACKS
+index 1c80bef..361c82f 100644
+--- a/Misc/ACKS
++++ b/Misc/ACKS
+@@ -869,6 +869,7 @@ Jeffrey C. Jacobs
+ Kevin Jacobs
+ Kjetil Jacobsen
+ Shantanu Jain
++Adrin Jalali
+ Bertrand Janin
+ Geert Jansen
+ Jack Jansen
+diff --git a/Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-16-45-23.gh-issue-152235.ucKd9I.rst b/Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-16-45-23.gh-issue-152235.ucKd9I.rst
+new file mode 100644
+index 0000000..9542465
+--- /dev/null
++++ b/Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-16-45-23.gh-issue-152235.ucKd9I.rst
+@@ -0,0 +1,5 @@
++Fix full garbage collections becoming up to ten times slower after a large
++:class:`set` or :class:`frozenset` is built from an iterator that creates its
++elements, such as a generator.  The new set is again tracked by the garbage
++collector ahead of those elements, and is still not reachable through
++:func:`gc.get_objects` until it is complete.
+diff --git a/Objects/setobject.c b/Objects/setobject.c
+index b61c91f..51a2302 100644
+--- a/Objects/setobject.c
++++ b/Objects/setobject.c
+@@ -1110,9 +1110,77 @@ make_new_set_untracked(PyTypeObject *type, PyObject *iterable)
+     return (PyObject *)so;
+ }
+ 
++// A set filled from these only gets elements that already exist (so are
++// already ahead of the set in the GC list) or that the GC doesn't track.
++static inline int
++fill_may_create_tracked_elements(PyTypeObject *tp)
++{
++    if (tp->tp_flags & (Py_TPFLAGS_LIST_SUBCLASS
++                        | Py_TPFLAGS_TUPLE_SUBCLASS
++                        | Py_TPFLAGS_DICT_SUBCLASS
++                        | Py_TPFLAGS_UNICODE_SUBCLASS))
++    {
++        return 0;
++    }
++    return !(tp == &PySet_Type || tp == &PyFrozenSet_Type ||
++             tp == &PyRange_Type || tp == &PyDictKeys_Type ||
++             tp == &PyDictValues_Type);
++}
++
++// gh-152235: a set is tracked only once it is filled, so that it can't be
++// found half-built.  If the fill creates the elements, as a generator does,
++// reserve the set's place in the GC list ahead of them before the fill, or
++// a full collection scatters them in memory.  An iterator is already ahead of
++// everything it yields, so it can lend its position.
++static int
++reserve_gc_position(PyObject *iterable, _PyGC_Position *pos)
++{
++    if (iterable == NULL
++        || !fill_may_create_tracked_elements(Py_TYPE(iterable)))
++    {
++        return 0;
++    }
++    PyObject *hint = PyIter_Check(iterable) ? iterable : NULL;
++    return _PyGC_ReservePosition(pos, hint);
++}
++
++// _PyObject_GC_TrackAtPosition() handles an unreserved position too, but
++// this keeps the common case inline.
++static inline void
++track_set_at(PyObject *so, _PyGC_Position *pos)
++{
++    if (pos->anchor != NULL) {
++        _PyObject_GC_TrackAtPosition(so, pos);
++    }
++    else {
++        _PyObject_GC_TRACK(so);
++    }
++}
++
++static PyObject *
++make_new_set_at_gc_position(PyTypeObject *type, PyObject *iterable)
++{
++    _PyGC_Position pos = _PyGC_POSITION_INIT;
++    if (reserve_gc_position(iterable, &pos) < 0) {
++        return NULL;
++    }
++    PyObject *so = make_new_set_untracked(type, iterable);
++    if (so == NULL) {
++        _PyGC_ReleasePosition(&pos);
++        return NULL;
++    }
++    track_set_at(so, &pos);
++    return so;
++}
++
+ static PyObject *
+ make_new_set(PyTypeObject *type, PyObject *iterable)
+ {
++    if (iterable != NULL
++        && fill_may_create_tracked_elements(Py_TYPE(iterable)))
++    {
++        return make_new_set_at_gc_position(type, iterable);
++    }
+     PyObject *so = make_new_set_untracked(type, iterable);
+     if (so != NULL) {
+         _PyObject_GC_TRACK(so);
+@@ -1330,11 +1398,19 @@ set_union_impl(PySetObject *so, PyObject *args)
+     PySetObject *result;
+     PyObject *other;
+     Py_ssize_t i;
++    _PyGC_Position pos = _PyGC_POSITION_INIT;
+ 
++    for (i = 0; i < PyTuple_GET_SIZE(args) && pos.anchor == NULL; i++) {
++        if (reserve_gc_position(PyTuple_GET_ITEM(args, i), &pos) < 0) {
++            return NULL;
++        }
++    }
+     result = (PySetObject *)make_new_set_basetype_untracked(Py_TYPE(so),
+                                                             (PyObject *)so);
+-    if (result == NULL)
++    if (result == NULL) {
++        _PyGC_ReleasePosition(&pos);
+         return NULL;
++    }
+ 
+     for (i=0 ; i<PyTuple_GET_SIZE(args) ; i++) {
+         other = PyTuple_GET_ITEM(args, i);
+@@ -1342,10 +1418,11 @@ set_union_impl(PySetObject *so, PyObject *args)
+             continue;
+         if (set_update_local(result, other)) {
+             Py_DECREF(result);
++            _PyGC_ReleasePosition(&pos);
+             return NULL;
+         }
+     }
+-    _PyObject_GC_TRACK(result);
++    track_set_at((PyObject *)result, &pos);
+     return (PyObject *)result;
+ }
+ 
+@@ -1390,6 +1467,7 @@ set_intersection(PySetObject *so, PyObject *other)
+     PyObject *key, *it, *tmp;
+     Py_hash_t hash;
+     int rv;
++    _PyGC_Position pos = _PyGC_POSITION_INIT;
+ 
+     if ((PyObject *)so == other)
+         return set_copy_impl(so);
+@@ -1431,9 +1509,14 @@ set_intersection(PySetObject *so, PyObject *other)
+         return (PyObject *)result;
+     }
+ 
++    if (reserve_gc_position(other, &pos) < 0) {
++        Py_DECREF(result);
++        return NULL;
++    }
+     it = PyObject_GetIter(other);
+     if (it == NULL) {
+         Py_DECREF(result);
++        _PyGC_ReleasePosition(&pos);
+         return NULL;
+     }
+ 
+@@ -1457,14 +1540,16 @@ set_intersection(PySetObject *so, PyObject *other)
+     Py_DECREF(it);
+     if (PyErr_Occurred()) {
+         Py_DECREF(result);
++        _PyGC_ReleasePosition(&pos);
+         return NULL;
+     }
+-    _PyObject_GC_TRACK(result);
++    track_set_at((PyObject *)result, &pos);
+     return (PyObject *)result;
+   error:
+     Py_DECREF(it);
+     Py_DECREF(result);
+     Py_DECREF(key);
++    _PyGC_ReleasePosition(&pos);
+     return NULL;
+ }
+ 
+@@ -2006,20 +2091,24 @@ static PyObject *
+ set_symmetric_difference_impl(PySetObject *so, PyObject *other)
+ /*[clinic end generated code: output=270ee0b5d42b0797 input=624f6e7bbdf70db1]*/
+ {
++    _PyGC_Position pos = _PyGC_POSITION_INIT;
++    if (reserve_gc_position(other, &pos) < 0) {
++        return NULL;
++    }
+     PySetObject *result =
+         (PySetObject *)make_new_set_basetype_untracked(Py_TYPE(so), NULL);
+     if (result == NULL) {
++        _PyGC_ReleasePosition(&pos);
+         return NULL;
+     }
+-    if (set_update_lock_held(result, other) < 0) {
++    if (set_update_lock_held(result, other) < 0
++        || set_symmetric_difference_update_set(result, so) < 0)
++    {
+         Py_DECREF(result);
++        _PyGC_ReleasePosition(&pos);
+         return NULL;
+     }
+-    if (set_symmetric_difference_update_set(result, so) < 0) {
+-        Py_DECREF(result);
+-        return NULL;
+-    }
+-    _PyObject_GC_TRACK(result);
++    track_set_at((PyObject *)result, &pos);
+     return (PyObject *)result;
+ }
+ 
+diff --git a/Python/gc.c b/Python/gc.c
+index 58fbad9..a43545c 100644
+--- a/Python/gc.c
++++ b/Python/gc.c
+@@ -229,6 +229,23 @@ gc_list_append(PyGC_Head *node, PyGC_Head *list)
+     list->_gc_prev = (uintptr_t)node;
+ }
+ 
++/* Insert `node` right after `prev`, in the gc list `prev` is in.  Unlike
++ * gc_list_append(), `prev` may be an object (whose _gc_prev has flags).
++ */
++static inline void
++gc_list_insert_after(PyGC_Head *node, PyGC_Head *prev)
++{
++    PyGC_Head *next = GC_NEXT(prev);
++
++    // prev <-> node
++    _PyGCHead_SET_PREV(node, prev);
++    _PyGCHead_SET_NEXT(prev, node);
++
++    // node <-> next
++    _PyGCHead_SET_NEXT(node, next);
++    _PyGCHead_SET_PREV(next, node);
++}
++
+ /* Remove `node` from the gc list it's currently in. */
+ static inline void
+ gc_list_remove(PyGC_Head *node)
+@@ -1612,6 +1629,66 @@ _PyGC_GetFreezeCount(PyInterpreterState *interp)
+     return gc_list_size(&gcstate->permanent_generation.head);
+ }
+ 
++/* Tracking at a reserved position: see _PyGC_Position in pycore_gc.h. */
++
++int
++_PyGC_ReservePosition(_PyGC_Position *pos, PyObject *hint)
++{
++    GCState *gcstate = get_gc_state();
++    assert(pos->anchor == NULL);
++    // A hint that gc.freeze() moved to the permanent generation would take
++    // the object there too, and it would never be collected.  We can't tell
++    // where an object is, so only use a hint when nothing is frozen.
++    if (hint != NULL && _PyObject_IS_GC(hint) && _PyObject_GC_IS_TRACKED(hint)
++        && gc_list_is_empty(&gcstate->permanent_generation.head))
++    {
++        pos->anchor = Py_NewRef(hint);
++        pos->is_placeholder = 0;
++        return 0;
++    }
++    // A list is always tracked, and harmless if found through
++    // gc.get_objects().  It is only referenced from here, so it moves through
++    // the generations as an object tracked now would.
++    pos->anchor = PyList_New(0);
++    if (pos->anchor == NULL) {
++        return -1;
++    }
++    pos->is_placeholder = 1;
++    return 0;
++}
++
++void
++_PyGC_ReleasePosition(_PyGC_Position *pos)
++{
++    Py_CLEAR(pos->anchor);
++}
++
++void
++_PyObject_GC_TrackAtPosition(PyObject *op, _PyGC_Position *pos)
++{
++    GCState *gcstate = get_gc_state();
++    PyObject *anchor = pos->anchor;
++    _PyObject_ASSERT(op, !_PyObject_GC_IS_TRACKED(op));
++    // Use the anchor's position unless:
++    // - it is no longer tracked;
++    // - it is in a list being collected: Python code run by a collection
++    //   (a finalizer, say) can fill an object from garbage the collection
++    //   is about to clear;
++    // - it is a hint and gc.freeze() was called since it was reserved.
++    if (anchor != NULL
++        && _PyObject_GC_IS_TRACKED(anchor)
++        && !gc_is_collecting(AS_GC(anchor))
++        && (pos->is_placeholder
++            || gc_list_is_empty(&gcstate->permanent_generation.head)))
++    {
++        gc_list_insert_after(AS_GC(op), AS_GC(anchor));
++    }
++    else {
++        _PyObject_GC_TRACK(op);
++    }
++    _PyGC_ReleasePosition(pos);
++}
++
+ /* C API for controlling the state of the garbage collector */
+ int
+ PyGC_Enable(void)
+diff --git a/Python/gc_free_threading.c b/Python/gc_free_threading.c
+index b964b8b..e2e0583 100644
+--- a/Python/gc_free_threading.c
++++ b/Python/gc_free_threading.c
+@@ -1515,6 +1515,30 @@ _PyGC_GetFreezeCount(PyInterpreterState *interp)
+     return args.count;
+ }
+ 
++/* Tracking at a reserved position: see _PyGC_Position in pycore_gc.h.  The
++   free-threaded GC doesn't keep objects in lists, so there is no position to
++   keep: objects are tracked normally. */
++
++int
++_PyGC_ReservePosition(_PyGC_Position *pos, PyObject *Py_UNUSED(hint))
++{
++    assert(pos->anchor == NULL);
++    return 0;
++}
++
++void
++_PyGC_ReleasePosition(_PyGC_Position *pos)
++{
++    Py_CLEAR(pos->anchor);
++}
++
++void
++_PyObject_GC_TrackAtPosition(PyObject *op, _PyGC_Position *pos)
++{
++    _PyObject_GC_TRACK(op);
++    _PyGC_ReleasePosition(pos);
++}
++
+ /* C API for controlling the state of the garbage collector */
+ int
+ PyGC_Enable(void)

@@ -1,0 +1,183 @@
+From 8b0deb9b11f8ca4132b1e7f1dafc096ce3826088 Mon Sep 17 00:00:00 2001
+From: Adrin Jalali <adrin.jalali@gmail.com>
+Date: Thu, 19 Nov 2026 16:00:53 +0000
+Subject: [PATCH] [3.15] gh-152235: Call the tp_alloc of set and frozenset
+ subclasses again
+
+Since gh-152235, make_new_set() allocates with _PyType_AllocNoTrack()
+instead of type->tp_alloc, so a subclass of set or frozenset written in C
+with its own tp_alloc no longer has its allocator called when it is built,
+while its tp_free still releases the object.  The tp_alloc slot of set
+and frozenset, which such subclasses inherit, also became
+_PyType_AllocNoTrack(), which returns untracked objects.
+
+Call type->tp_alloc again when it isn't PyType_GenericAlloc, and untrack
+the result until the set is full, as the other paths do.  Exact sets and
+Python subclasses keep the direct _PyType_AllocNoTrack() path.  Make
+PyType_GenericAlloc the tp_alloc of set and frozenset again.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Lib/test/test_capi/test_set.py                | 12 +++++
+ Misc/ACKS                                     |  1 +
+ ...-11-19-16-20-00.gh-issue-152235.GL4RD4.rst |  4 ++
+ Modules/_testcapi/set.c                       | 46 ++++++++++++++++++-
+ Objects/setobject.c                           | 17 +++++--
+ 5 files changed, 76 insertions(+), 4 deletions(-)
+ create mode 100644 Misc/NEWS.d/next/Core_and_Builtins/2026-11-19-16-20-00.gh-issue-152235.GL4RD4.rst
+
+diff --git a/Lib/test/test_capi/test_set.py b/Lib/test/test_capi/test_set.py
+index a41c2fc..25b293a 100644
+--- a/Lib/test/test_capi/test_set.py
++++ b/Lib/test/test_capi/test_set.py
+@@ -1,3 +1,4 @@
++import gc
+ import unittest
+ 
+ from test.support import import_helper
+@@ -225,6 +226,17 @@ def test_clear(self):
+         self.assertImmutable(clear)
+         # CRASHES: clear(NULL)
+ 
++    def test_subclass_with_custom_tp_alloc(self):
++        # gh-152235: building one from an iterable calls its tp_alloc.
++        for cls in (_testcapi.SetWithCustomAlloc,
++                    _testcapi.FrozenSetWithCustomAlloc):
++            with self.subTest(cls=cls):
++                calls = _testcapi.set_custom_alloc_calls()
++                s = cls(x for x in range(3))
++                self.assertEqual(_testcapi.set_custom_alloc_calls(), calls + 1)
++                self.assertEqual(s, {0, 1, 2})
++                self.assertTrue(gc.is_tracked(s))
++
+ 
+ class TestInternalCAPI(BaseSetTests, unittest.TestCase):
+     def test_set_update(self):
+diff --git a/Misc/ACKS b/Misc/ACKS
+index 82d02c1..201b140 100644
+--- a/Misc/ACKS
++++ b/Misc/ACKS
+@@ -895,6 +895,7 @@ Jeffrey C. Jacobs
+ Kevin Jacobs
+ Kjetil Jacobsen
+ Shantanu Jain
++Adrin Jalali
+ Bertrand Janin
+ Geert Jansen
+ Jack Jansen
+diff --git a/Misc/NEWS.d/next/Core_and_Builtins/2026-11-19-16-20-00.gh-issue-152235.GL4RD4.rst b/Misc/NEWS.d/next/Core_and_Builtins/2026-11-19-16-20-00.gh-issue-152235.GL4RD4.rst
+new file mode 100644
+index 0000000..7827509
+--- /dev/null
++++ b/Misc/NEWS.d/next/Core_and_Builtins/2026-11-19-16-20-00.gh-issue-152235.GL4RD4.rst
+@@ -0,0 +1,4 @@
++Building a :class:`set` or :class:`frozenset` subclass written in C from an
++iterable calls the subclass's :c:member:`~PyTypeObject.tp_alloc` again, and
++the :c:member:`~PyTypeObject.tp_alloc` slot of :class:`set` and
++:class:`frozenset` is :c:func:`PyType_GenericAlloc` again.
+diff --git a/Modules/_testcapi/set.c b/Modules/_testcapi/set.c
+index 092715a..e3016aa 100644
+--- a/Modules/_testcapi/set.c
++++ b/Modules/_testcapi/set.c
+@@ -31,14 +31,58 @@ test_set_type_size(PyObject *self, PyObject *Py_UNUSED(ignored))
+ }
+ 
+ 
++// gh-152235: subclasses of set and frozenset with their own tp_alloc.
++static Py_ssize_t custom_alloc_calls = 0;
++
++static PyObject *
++counting_alloc(PyTypeObject *type, Py_ssize_t nitems)
++{
++    custom_alloc_calls++;
++    return PyType_GenericAlloc(type, nitems);
++}
++
++static PyObject *
++set_custom_alloc_calls(PyObject *self, PyObject *Py_UNUSED(ignored))
++{
++    return PyLong_FromSsize_t(custom_alloc_calls);
++}
++
++static PyTypeObject SetWithCustomAlloc_Type = {
++    PyVarObject_HEAD_INIT(NULL, 0)
++    .tp_name = "_testcapi.SetWithCustomAlloc",
++    .tp_basicsize = sizeof(PySetObject),
++    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
++    .tp_alloc = counting_alloc,
++};
++
++static PyTypeObject FrozenSetWithCustomAlloc_Type = {
++    PyVarObject_HEAD_INIT(NULL, 0)
++    .tp_name = "_testcapi.FrozenSetWithCustomAlloc",
++    .tp_basicsize = sizeof(PySetObject),
++    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
++    .tp_alloc = counting_alloc,
++};
++
+ static PyMethodDef test_methods[] = {
+     {"set_get_size", set_get_size, METH_O},
+     {"test_set_type_size", test_set_type_size, METH_NOARGS},
++    {"set_custom_alloc_calls", set_custom_alloc_calls, METH_NOARGS},
+     {NULL},
+ };
+ 
+ int
+ _PyTestCapi_Init_Set(PyObject *m)
+ {
+-    return PyModule_AddFunctions(m, test_methods);
++    if (PyModule_AddFunctions(m, test_methods) < 0) {
++        return -1;
++    }
++    SetWithCustomAlloc_Type.tp_base = &PySet_Type;
++    if (PyModule_AddType(m, &SetWithCustomAlloc_Type) < 0) {
++        return -1;
++    }
++    FrozenSetWithCustomAlloc_Type.tp_base = &PyFrozenSet_Type;
++    if (PyModule_AddType(m, &FrozenSetWithCustomAlloc_Type) < 0) {
++        return -1;
++    }
++    return 0;
+ }
+diff --git a/Objects/setobject.c b/Objects/setobject.c
+index bb407ce..5e502e9 100644
+--- a/Objects/setobject.c
++++ b/Objects/setobject.c
+@@ -1353,7 +1353,18 @@ make_new_set_untracked(PyTypeObject *type, PyObject *iterable)
+     assert(PyType_Check(type));
+     PySetObject *so;
+ 
+-    so = (PySetObject *)_PyType_AllocNoTrack(type, 0);
++    if (type->tp_alloc == PyType_GenericAlloc) {
++        so = (PySetObject *)_PyType_AllocNoTrack(type, 0);
++    }
++    else {
++        // A subclass written in C with its own allocator, which returns
++        // zeroed memory too: use it, but keep the set untracked until it is
++        // full, like the others.
++        so = (PySetObject *)type->tp_alloc(type, 0);
++        if (so != NULL && _PyObject_GC_IS_TRACKED(so)) {
++            _PyObject_GC_UNTRACK(so);
++        }
++    }
+     if (so == NULL)
+         return NULL;
+ 
+@@ -2917,7 +2928,7 @@ PyTypeObject PySet_Type = {
+     0,                                  /* tp_descr_set */
+     0,                                  /* tp_dictoffset */
+     set_init,                           /* tp_init */
+-    _PyType_AllocNoTrack,               /* tp_alloc */
++    PyType_GenericAlloc,                /* tp_alloc */
+     set_new,                            /* tp_new */
+     PyObject_GC_Del,                    /* tp_free */
+     .tp_vectorcall = set_vectorcall,
+@@ -3009,7 +3020,7 @@ PyTypeObject PyFrozenSet_Type = {
+     0,                                  /* tp_descr_set */
+     0,                                  /* tp_dictoffset */
+     0,                                  /* tp_init */
+-    _PyType_AllocNoTrack,               /* tp_alloc */
++    PyType_GenericAlloc,                /* tp_alloc */
+     frozenset_new,                      /* tp_new */
+     PyObject_GC_Del,                    /* tp_free */
+     .tp_vectorcall = frozenset_vectorcall,

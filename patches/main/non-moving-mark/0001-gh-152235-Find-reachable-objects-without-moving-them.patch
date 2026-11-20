@@ -1,0 +1,353 @@
+From e54c7fcc9ae867cbae61fd4a462c0c4ae7d1d7ea Mon Sep 17 00:00:00 2001
+From: Adrin Jalali <adrin.jalali@gmail.com>
+Date: Tue, 17 Nov 2026 20:34:34 +0000
+Subject: [PATCH] gh-152235: Find reachable objects without moving them in the
+ GC
+
+move_unreachable() moved every object with gc_refs 0 to 'unreachable',
+and moved it back, in its referrer's traversal order, if the referrer
+turned out to be reachable.  For a set that is hash order: its elements
+end up in random memory order in the GC list, and every later full
+collection is up to ten times slower.  This happens to a set built from
+a generator (since gh-152235 only tracks it once it is full) and to one
+built from a list or dict that then goes away (in every version).
+
+Mark reachable objects in place instead.  Scan 'young' in order and
+traverse objects with gc_refs > 0; flag the others with
+NEXT_MASK_UNREACHABLE where they are, and traverse a flagged object from
+a stack when a later object reaches it.  A final pass moves the flagged
+objects to 'unreachable'.  Reachable objects keep their order.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Lib/test/test_gc.py                           |  15 ++
+ Misc/ACKS                                     |   1 +
+ ...-11-17-20-16-11.gh-issue-152235.fmFd6y.rst |   5 +
+ Python/gc.c                                   | 202 +++++++-----------
+ 4 files changed, 98 insertions(+), 125 deletions(-)
+ create mode 100644 Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-20-16-11.gh-issue-152235.fmFd6y.rst
+
+diff --git a/Lib/test/test_gc.py b/Lib/test/test_gc.py
+index 919100f2d5c..ee10c4c4c9a 100644
+--- a/Lib/test/test_gc.py
++++ b/Lib/test/test_gc.py
+@@ -899,6 +899,21 @@ def test_get_objects(self):
+                 any(l is element for element in gc.get_objects())
+         )
+ 
++    @requires_gil_enabled('need generational GC')
++    def test_collection_keeps_list_order(self):
++        # gh-152235: a collection doesn't reorder reachable objects, even ones
++        # whose only referrer comes after them in the list (here, a set built
++        # from a list that went away).
++        class K:
++            pass
++        with support.disable_gc():
++            s = set([K() for _ in range(1000)])
++            before = [id(o) for o in gc.get_objects() if type(o) is K]
++        gc.collect()
++        after = [id(o) for o in gc.get_objects() if type(o) is K]
++        self.assertEqual(len(after), len(s))
++        self.assertEqual(after, before)
++
+     @requires_gil_enabled('need generational GC')
+     def test_get_objects_generations(self):
+         gc.collect()
+diff --git a/Misc/ACKS b/Misc/ACKS
+index c3ecfc1e315..e2e5d217874 100644
+--- a/Misc/ACKS
++++ b/Misc/ACKS
+@@ -897,6 +897,7 @@ Jeffrey C. Jacobs
+ Kevin Jacobs
+ Kjetil Jacobsen
+ Shantanu Jain
++Adrin Jalali
+ Bertrand Janin
+ Geert Jansen
+ Jack Jansen
+diff --git a/Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-20-16-11.gh-issue-152235.fmFd6y.rst b/Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-20-16-11.gh-issue-152235.fmFd6y.rst
+new file mode 100644
+index 00000000000..06a6165b157
+--- /dev/null
++++ b/Misc/NEWS.d/next/Core_and_Builtins/2026-11-17-20-16-11.gh-issue-152235.fmFd6y.rst
+@@ -0,0 +1,5 @@
++Fix full garbage collections becoming up to ten times slower after a large
++:class:`set` or :class:`frozenset` becomes the only owner of its elements, as
++when it is built from a generator or from a list that then goes away.  The
++garbage collector now finds reachable objects without moving them, so it no
++longer reorders them in memory.
+diff --git a/Python/gc.c b/Python/gc.c
+index e363fa77f72..ed6c9798935 100644
+--- a/Python/gc.c
++++ b/Python/gc.c
+@@ -12,6 +12,7 @@
+ #include "pycore_interpframe.h"   // _PyFrame_GetLocalsArray()
+ #include "pycore_object.h"
+ #include "pycore_object_alloc.h"  // _PyObject_MallocWithType()
++#include "pycore_object_stack.h"  // _PyObjectStack
+ #include "pycore_pyerrors.h"
+ #include "pycore_pystate.h"       // _PyThreadState_GET()
+ #include "pycore_tuple.h"         // _PyTuple_MaybeUntrack()
+@@ -501,66 +502,47 @@ subtract_refs(PyGC_Head *containers)
+     }
+ }
+ 
+-/* A traversal callback for move_unreachable. */
++struct mark_state {
++    _PyObjectStack stack;
++    int overflow;   // an object couldn't be pushed: scan 'young' again
++};
++
++/* A tp_traverse callback for move_unreachable().  An object the scan hasn't
++ * reached yet only needs gc_refs > 0: the scan traverses it when it gets
++ * there, in list order.  An object the scan already passed (with gc_refs 0,
++ * so it is flagged NEXT_MASK_UNREACHABLE, in place) is traversed now, from a
++ * stack.  Either way it stays where it is in the list.
++ */
+ static int
+-visit_reachable(PyObject *op, void *arg)
++visit_mark_reachable(PyObject *op, void *arg)
+ {
+-    PyGC_Head *reachable = arg;
++    struct mark_state *state = (struct mark_state *)arg;
+     OBJECT_STAT_INC(object_visits);
+     if (!_PyObject_IS_GC(op)) {
+         return 0;
+     }
+-
+     PyGC_Head *gc = AS_GC(op);
+-    const Py_ssize_t gc_refs = gc_get_refs(gc);
+-
+-    // Ignore objects in other generation.
+-    // This also skips objects "to the left" of the current position in
+-    // move_unreachable's scan of the 'young' list - they've already been
+-    // traversed, and no longer have the PREV_MASK_COLLECTING flag.
+-    if (! gc_is_collecting(gc)) {
++    // Objects in other generations, and objects already traversed, don't
++    // have the COLLECTING flag.
++    if (!gc_is_collecting(gc)) {
+         return 0;
+     }
+     // It would be a logic error elsewhere if the collecting flag were set on
+     // an untracked object.
+     _PyObject_ASSERT(op, gc->_gc_next != 0);
+-
+     if (gc->_gc_next & NEXT_MASK_UNREACHABLE) {
+-        /* This had gc_refs = 0 when move_unreachable got
+-         * to it, but turns out it's reachable after all.
+-         * Move it back to move_unreachable's 'young' list,
+-         * and move_unreachable will eventually get to it
+-         * again.
+-         */
+-        // Manually unlink gc from unreachable list because the list functions
+-        // don't work right in the presence of NEXT_MASK_UNREACHABLE flags.
+-        PyGC_Head *prev = GC_PREV(gc);
+-        PyGC_Head *next = (PyGC_Head*)(gc->_gc_next & ~NEXT_MASK_UNREACHABLE);
+-        _PyObject_ASSERT(FROM_GC(prev),
+-                         prev->_gc_next & NEXT_MASK_UNREACHABLE);
+-        _PyObject_ASSERT(FROM_GC(next),
+-                         next->_gc_next & NEXT_MASK_UNREACHABLE);
+-        prev->_gc_next = gc->_gc_next;  // copy NEXT_MASK_UNREACHABLE
+-        _PyGCHead_SET_PREV(next, prev);
+-
+-        gc_list_append(gc, reachable);
+-        gc_set_refs(gc, 1);
++        if (_PyObjectStack_Push(&state->stack, op) < 0) {
++            // Out of memory: leave it for another scan, as a root.
++            gc_set_refs(gc, 1);
++            state->overflow = 1;
++            return 0;
++        }
++        gc->_gc_next &= ~NEXT_MASK_UNREACHABLE;
++        gc_clear_collecting(gc);
+     }
+-    else if (gc_refs == 0) {
+-        /* This is in move_unreachable's 'young' list, but
+-         * the traversal hasn't yet gotten to it.  All
+-         * we need to do is tell move_unreachable that it's
+-         * reachable.
+-         */
++    else if (gc_get_refs(gc) == 0) {
+         gc_set_refs(gc, 1);
+     }
+-    /* Else there's nothing to do.
+-     * If gc_refs > 0, it must be in move_unreachable's 'young'
+-     * list, and move_unreachable will eventually get to it.
+-     */
+-    else {
+-        _PyObject_ASSERT_WITH_MSG(op, gc_refs > 0, "refcount is too small");
+-    }
+     return 0;
+ }
+ 
+@@ -579,70 +561,64 @@ visit_reachable(PyObject *op, void *arg)
+ static Py_ssize_t
+ move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
+ {
++    /* Mark: scan 'young' in order.  An object with gc_refs > 0 is reachable
++     * (from outside 'young', or from an object traversed before it): traverse
++     * it.  One with gc_refs 0 may be unreachable: flag it, and leave it where
++     * it is.  Nothing is moved, so the reachable objects keep their order.
++     */
++    struct mark_state state = {.stack = {NULL}, .overflow = 0};
++    do {
++        state.overflow = 0;
++        PyGC_Head *gc = GC_NEXT(young);
++        while (gc != young) {
++            PyGC_Head *next =
++                (PyGC_Head *)(gc->_gc_next & ~NEXT_MASK_UNREACHABLE);
++            if (gc_is_collecting(gc)) {
++                if (gc_get_refs(gc) > 0) {
++                    gc->_gc_next &= ~NEXT_MASK_UNREACHABLE;
++                    gc_clear_collecting(gc);
++                    PyObject *op = FROM_GC(gc);
++                    do {
++                        (void) Py_TYPE(op)->tp_traverse(
++                            op, visit_mark_reachable, &state);
++                    } while ((op = _PyObjectStack_Pop(&state.stack)) != NULL);
++                }
++                else {
++                    gc->_gc_next |= NEXT_MASK_UNREACHABLE;
++                }
++            }
++            gc = next;
++        }
++    } while (state.overflow);
++
++    /* Sweep: relink the gc_prev of reachable objects, which held gc_refs, and
++     * move everything that still has the COLLECTING flag (and the
++     * NEXT_MASK_UNREACHABLE flag) to 'unreachable'.
++     */
+     Py_ssize_t reachable = 0;
+-    // previous elem in the young list, used for restore gc_prev.
+     PyGC_Head *prev = young;
+     PyGC_Head *gc = GC_NEXT(young);
+-
+-    /* Invariants:  all objects "to the left" of us in young are reachable
+-     * (directly or indirectly) from outside the young list as it was at entry.
+-     *
+-     * All other objects from the original young "to the left" of us are in
+-     * unreachable now, and have NEXT_MASK_UNREACHABLE.  All objects to the
+-     * left of us in 'young' now have been scanned, and no objects here
+-     * or to the right have been scanned yet.
+-     */
+-
+     while (gc != young) {
+-        if (gc_get_refs(gc)) {
+-            /* gc is definitely reachable from outside the
+-             * original 'young'.  Mark it as such, and traverse
+-             * its pointers to find any other objects that may
+-             * be directly reachable from it.  Note that the
+-             * call to tp_traverse may append objects to young,
+-             * so we have to wait until it returns to determine
+-             * the next object to visit.
+-             */
+-            PyObject *op = FROM_GC(gc);
+-            traverseproc traverse = Py_TYPE(op)->tp_traverse;
+-            _PyObject_ASSERT_WITH_MSG(op, gc_get_refs(gc) > 0,
+-                                      "refcount is too small");
+-            // NOTE: visit_reachable may change gc->_gc_next when
+-            // young->_gc_prev == gc.  Don't do gc = GC_NEXT(gc) before!
+-            (void) traverse(op,
+-                    visit_reachable,
+-                    (void *)young);
+-            // relink gc_prev to prev element.
++        PyGC_Head *next = (PyGC_Head *)(gc->_gc_next & ~NEXT_MASK_UNREACHABLE);
++        if (!gc_is_collecting(gc)) {
+             _PyGCHead_SET_PREV(gc, prev);
+-            // gc is not COLLECTING state after here.
+-            gc_clear_collecting(gc);
++            PyObject *op = FROM_GC(gc);
+             if (PyTuple_CheckExact(op)) {
+                 // Untracking gc overwrites the gc_refs of the next object.
+-                PyGC_Head *next = GC_NEXT(gc);
+                 uintptr_t next_refs = next->_gc_prev;
+                 _PyTuple_MaybeUntrack(op);
+                 next->_gc_prev = next_refs;
+-                if (gc->_gc_next != 0) {
+-                    prev = gc;
+-                    reachable++;
++                if (gc->_gc_next == 0) {
++                    gc = next;
++                    continue;
+                 }
+             }
+-            else {
+-                prev = gc;
+-                reachable++;
+-            }
++            prev = gc;
++            reachable++;
+         }
+         else {
+-            /* This *may* be unreachable.  To make progress,
+-             * assume it is.  gc isn't directly reachable from
+-             * any object we've already traversed, but may be
+-             * reachable from an object we haven't gotten to yet.
+-             * visit_reachable will eventually move gc back into
+-             * young if that's so, and we'll see it again.
+-             */
+-            // Move gc to unreachable.
+             // No need to gc->next->prev = prev because it is single linked.
+-            prev->_gc_next = gc->_gc_next;
++            prev->_gc_next = (uintptr_t)next;
+ 
+             // We can't use gc_list_append() here because we use
+             // NEXT_MASK_UNREACHABLE here.
+@@ -657,7 +633,7 @@ move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
+             gc->_gc_next = (NEXT_MASK_UNREACHABLE | (uintptr_t)unreachable);
+             unreachable->_gc_prev = (uintptr_t)gc;
+         }
+-        gc = (PyGC_Head*)prev->_gc_next;
++        gc = next;
+     }
+     // young->_gc_prev must be last element remained in the list.
+     young->_gc_prev = (uintptr_t)prev;
+@@ -1223,37 +1199,13 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable,
+     /* Leave everything reachable from outside base in base, and move
+      * everything else (in base) to unreachable.
+      *
+-     * NOTE:  This used to move the reachable objects into a reachable
+-     * set instead.  But most things usually turn out to be reachable,
+-     * so it's more efficient to move the unreachable things.  It "sounds slick"
+-     * to move the unreachable objects, until you think about it - the reason it
+-     * pays isn't actually obvious.
+-     *
+-     * Suppose we create objects A, B, C in that order.  They appear in the young
+-     * generation in the same order.  If B points to A, and C to B, and C is
+-     * reachable from outside, then the adjusted refcounts will be 0, 0, and 1
+-     * respectively.
+-     *
+-     * When move_unreachable finds A, A is moved to the unreachable list.  The
+-     * same for B when it's first encountered.  Then C is traversed, B is moved
+-     * _back_ to the reachable list.  B is eventually traversed, and then A is
+-     * moved back to the reachable list.
+-     *
+-     * So instead of not moving at all, the reachable objects B and A are moved
+-     * twice each.  Why is this a win?  A straightforward algorithm to move the
+-     * reachable objects instead would move A, B, and C once each.
+-     *
+-     * The key is that this dance leaves the objects in order C, B, A - it's
+-     * reversed from the original order.  On all _subsequent_ scans, none of
+-     * them will move.  Since most objects aren't in cycles, this can save an
+-     * unbounded number of moves across an unbounded number of later collections.
+-     * It can cost more only the first time the chain is scanned.
+-     *
+-     * Drawback:  move_unreachable is also used to find out what's still trash
+-     * after finalizers may resurrect objects.  In _that_ case most unreachable
+-     * objects will remain unreachable, so it would be more efficient to move
+-     * the reachable objects instead.  But this is a one-time cost, probably not
+-     * worth complicating the code to speed just a little.
++     * Reachable objects are found by marking from the objects referenced
++     * from outside base, without moving anything, so base keeps its order.
++     * (An earlier version moved every candidate to unreachable and moved the
++     * reachable ones back in the order they were visited.  That reordered
++     * objects whose only referrer comes after them in the list; for a set,
++     * hash order scattered its elements in memory and made later collections
++     * much slower, gh-152235.)
+      */
+     gc_list_init(unreachable);
+     // gc_prev is pointer again
+-- 
+2.43.7
+
