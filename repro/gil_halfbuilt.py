@@ -22,7 +22,6 @@ Run it on a --with-pydebug build too, so the GC's own consistency asserts are on
 """
 
 import gc
-import sys
 import weakref
 
 
@@ -152,7 +151,9 @@ def check_other_thread_hashes():
 
 
 def main():
-    print(f"# {sys.version.split()[0]} {'debug build' if hasattr(sys, 'gettotalrefcount') else ''}")
+    from describe import header
+    header("What can a half-built set break with the GIL? (OK = not broken here)",
+           "Each check builds sets while code run by the fill looks for the set.")
     checks = [
         ("1 frozenset hashed while half-built", check_frozenset_hash),
         ("2 gc.collect() during set fill", lambda: check_gc_during_fill(set)),

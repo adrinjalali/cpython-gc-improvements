@@ -1,0 +1,223 @@
+# repro/gc_order_perf.py --check-order 'set(gen)' (and the s.update(gen) baseline) on source builds of the last ref without gh-152235 and the first with it; 3 rounds interleaved, pinned to one core; 2026-11-24; load at start 13.71 7.18 3.36
+[round 1: 55bc3126e0a09a8e940da73e51ab1ffeecaf02d4]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.16.0a0: source build of 55bc3126e0a09a8e940da73e51ab1ffeecaf02d4, unpatched
+    set(gen) is GC-tracked ahead of its elements
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.13s  2nd  0.13s  set ahead   baseline
+    set(gen)                           1st  0.13s  2nd  0.13s  set ahead   ok
+[round 1: 908f438e198a753d40d1166b5f8725e650a9ed6e]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.16.0a0: source build of 908f438e198a753d40d1166b5f8725e650a9ed6e, unpatched
+    set(gen) is GC-tracked behind its elements (gh-152235's change)
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.12s  2nd  0.13s  set ahead   baseline
+    set(gen)                           1st  0.78s  2nd  1.15s  set behind  slow (9x)
+[round 1: v3.15.0b3]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.15.0b3: source build of v3.15.0b3, unpatched
+    set(gen) is GC-tracked ahead of its elements
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.13s  2nd  0.13s  set ahead   baseline
+    set(gen)                           1st  0.13s  2nd  0.13s  set ahead   ok
+[round 1: v3.15.0b4]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.15.0b4: source build of v3.15.0b4, unpatched
+    set(gen) is GC-tracked behind its elements (gh-152235's change)
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.13s  2nd  0.13s  set ahead   baseline
+    set(gen)                           1st  0.82s  2nd  1.15s  set behind  slow (9x)
+[round 1: v3.14.6]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.14.6: source build of v3.14.6, unpatched
+    set(gen) is GC-tracked ahead of its elements
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.13s  2nd  0.13s  set ahead   baseline
+    set(gen)                           1st  0.13s  2nd  0.13s  set ahead   ok
+[round 1: v3.14.7]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.14.7: source build of v3.14.7, unpatched
+    set(gen) is GC-tracked behind its elements (gh-152235's change)
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.13s  2nd  0.13s  set ahead   baseline
+    set(gen)                           1st  0.82s  2nd  1.15s  set behind  slow (9x)
+[round 1: v3.13.14]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.13.14: source build of v3.13.14, unpatched
+    set(gen) is GC-tracked ahead of its elements
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.13s  2nd  0.13s  set ahead   baseline
+    set(gen)                           1st  0.13s  2nd  0.13s  set ahead   ok
+[round 1: v3.13.15]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.13.15: source build of v3.13.15, unpatched
+    set(gen) is GC-tracked behind its elements (gh-152235's change)
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.13s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.92s  2nd  1.28s  set behind  slow (10x)
+[round 2: 55bc3126e0a09a8e940da73e51ab1ffeecaf02d4]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.16.0a0: source build of 55bc3126e0a09a8e940da73e51ab1ffeecaf02d4, unpatched
+    set(gen) is GC-tracked ahead of its elements
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.12s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.12s  2nd  0.12s  set ahead   ok
+[round 2: 908f438e198a753d40d1166b5f8725e650a9ed6e]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.16.0a0: source build of 908f438e198a753d40d1166b5f8725e650a9ed6e, unpatched
+    set(gen) is GC-tracked behind its elements (gh-152235's change)
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.12s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.77s  2nd  1.17s  set behind  slow (9x)
+[round 2: v3.15.0b3]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.15.0b3: source build of v3.15.0b3, unpatched
+    set(gen) is GC-tracked ahead of its elements
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.13s  2nd  0.13s  set ahead   baseline
+    set(gen)                           1st  0.13s  2nd  0.13s  set ahead   ok
+[round 2: v3.15.0b4]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.15.0b4: source build of v3.15.0b4, unpatched
+    set(gen) is GC-tracked behind its elements (gh-152235's change)
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.12s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.81s  2nd  1.17s  set behind  slow (9x)
+[round 2: v3.14.6]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.14.6: source build of v3.14.6, unpatched
+    set(gen) is GC-tracked ahead of its elements
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.12s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.13s  2nd  0.12s  set ahead   ok
+[round 2: v3.14.7]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.14.7: source build of v3.14.7, unpatched
+    set(gen) is GC-tracked behind its elements (gh-152235's change)
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.11s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.82s  2nd  1.18s  set behind  slow (10x)
+[round 2: v3.13.14]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.13.14: source build of v3.13.14, unpatched
+    set(gen) is GC-tracked ahead of its elements
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.13s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.13s  2nd  0.13s  set ahead   ok
+[round 2: v3.13.15]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.13.15: source build of v3.13.15, unpatched
+    set(gen) is GC-tracked behind its elements (gh-152235's change)
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.13s  2nd  0.13s  set ahead   baseline
+    set(gen)                           1st  0.94s  2nd  1.25s  set behind  slow (10x)
+[round 3: 55bc3126e0a09a8e940da73e51ab1ffeecaf02d4]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.16.0a0: source build of 55bc3126e0a09a8e940da73e51ab1ffeecaf02d4, unpatched
+    set(gen) is GC-tracked ahead of its elements
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.12s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.12s  2nd  0.12s  set ahead   ok
+[round 3: 908f438e198a753d40d1166b5f8725e650a9ed6e]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.16.0a0: source build of 908f438e198a753d40d1166b5f8725e650a9ed6e, unpatched
+    set(gen) is GC-tracked behind its elements (gh-152235's change)
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.12s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.75s  2nd  1.13s  set behind  slow (9x)
+[round 3: v3.15.0b3]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.15.0b3: source build of v3.15.0b3, unpatched
+    set(gen) is GC-tracked ahead of its elements
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.13s  2nd  0.13s  set ahead   baseline
+    set(gen)                           1st  0.12s  2nd  0.12s  set ahead   ok
+[round 3: v3.15.0b4]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.15.0b4: source build of v3.15.0b4, unpatched
+    set(gen) is GC-tracked behind its elements (gh-152235's change)
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.13s  2nd  0.13s  set ahead   baseline
+    set(gen)                           1st  0.81s  2nd  1.12s  set behind  slow (9x)
+[round 3: v3.14.6]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.14.6: source build of v3.14.6, unpatched
+    set(gen) is GC-tracked ahead of its elements
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.12s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.12s  2nd  0.12s  set ahead   ok
+[round 3: v3.14.7]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.14.7: source build of v3.14.7, unpatched
+    set(gen) is GC-tracked behind its elements (gh-152235's change)
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.12s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.79s  2nd  1.12s  set behind  slow (9x)
+[round 3: v3.13.14]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.13.14: source build of v3.13.14, unpatched
+    set(gen) is GC-tracked ahead of its elements
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.12s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.13s  2nd  0.13s  set ahead   ok
+[round 3: v3.13.15]
+  Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+    Python 3.13.15: source build of v3.13.15, unpatched
+    set(gen) is GC-tracked behind its elements (gh-152235's change)
+    1st = first full collection after the build (it relinks the elements);
+    2nd = median of the next 3 (pays for the order the 1st left).
+    A few seconds per row. "slow" = 2nd over 3x the s=set(); s.update(gen) row.
+    s=set(); s.update(gen)             1st  0.12s  2nd  0.12s  set ahead   baseline
+    set(gen)                           1st  0.94s  2nd  1.29s  set behind  slow (10x)
+# load at end 3.62 5.58 3.25
+# summary: branch, without -> with: 2nd full GC after set(gen) of 1M (median of 3 rounds), set order
+main: 55bc3126e0a 0.12s (set ahead) -> 908f438e198 1.15s (set behind)
+3.15: v3.15.0b3 0.13s (set ahead) -> v3.15.0b4 1.15s (set behind)
+3.14: v3.14.6 0.12s (set ahead) -> v3.14.7 1.15s (set behind)
+3.13: v3.13.14 0.13s (set ahead) -> v3.13.15 1.28s (set behind)

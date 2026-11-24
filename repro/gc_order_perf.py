@@ -6,16 +6,17 @@ No pandas needed: each element is a tuple (Key(i), i), which like
     python repro/gc_order_perf.py [-n 1000000] [pattern ...]
 
 For each pattern it prints:
-  set_first  whether the set sits before its elements in the GC list
-  1st        the first full collection after building (moves the elements)
-  2nd        the median of the next full collections (pays for the order the 1st left)
+  1st     the first full collection after building (moves the elements)
+  2nd     the median of the next full collections (pays for the order the 1st left)
+  order   with --check-order: is the set ahead of or behind its elements in the GC list
 """
 
 import argparse
 import gc
 import statistics
-import sys
 import time
+
+from describe import free_threaded, header
 
 
 class Key:
@@ -29,15 +30,17 @@ def elems(n):
     return ((Key(i), i) for i in range(n))
 
 
+BASELINE = "s=set(); s.update(gen)"
+
 PATTERNS = {
+    # the workaround, and the baseline: the set exists (and is tracked) first
+    BASELINE: lambda n: (s := set(), s.update(elems(n)), s)[2],
+    "{x for x in gen}": lambda n: {x for x in elems(n)},
     # the constructor paths gh-152235 changed (gh-152237, gh-152273, gh-152290)
     "set(gen)": lambda n: set(elems(n)),
     "frozenset(gen)": lambda n: frozenset(elems(n)),
     "set().union(gen)": lambda n: set().union(elems(n)),
     "set().symmetric_difference(gen)": lambda n: set().symmetric_difference(elems(n)),
-    # the workaround: the set exists (and is tracked) before the elements
-    "s=set(); s.update(gen)": lambda n: (s := set(), s.update(elems(n)), s)[2],
-    "{x for x in gen}": lambda n: {x for x in elems(n)},
 }
 
 
@@ -76,19 +79,31 @@ def main():
                     help="also check whether the set is ahead of its elements (n=1000)")
     ap.add_argument("patterns", nargs="*", default=list(PATTERNS))
     a = ap.parse_args()
-    print(f"# {sys.version.split()[0]} n={a.n:,}")
-    for p in a.patterns:
+    header(f"Full gc.collect() times after building a set of {a.n:,} (Key, int) tuples",
+           "1st = first full collection after the build (it relinks the elements);",
+           f"2nd = median of the next {a.repeats} (pays for the order the 1st left).",
+           f"A few seconds per row. \"slow\" = 2nd over 3x the {BASELINE} row.")
+    patterns = sorted(a.patterns, key=lambda p: p != BASELINE)  # baseline first
+    base = None
+    for p in patterns:
+        print(f"  {p:34s}", end=" ", flush=True)
         order = ""
-        if a.check_order:
+        if a.check_order and not free_threaded():  # no GC list order there
             gc.disable()
             try:
                 s = PATTERNS[p](1000)
-                order = "set_first" if set_first(s) else "ELEMENTS_FIRST"
+                order = "  set ahead " if set_first(s) else "  set behind"
             finally:
                 gc.enable()
             del s
         first, second = run(p, a.n, a.repeats)
-        print(f"{p:34s} 1st {first:6.2f}s  2nd {second:6.2f}s  {order}", flush=True)
+        if p == BASELINE:
+            base, verdict = second, "baseline"
+        elif base is not None and second > 3 * base:
+            verdict = f"slow ({second / base:.0f}x)"
+        else:
+            verdict = "ok" if base is not None else ""
+        print(f"1st {first:5.2f}s  2nd {second:5.2f}s{order}  {verdict}", flush=True)
 
 
 if __name__ == "__main__":

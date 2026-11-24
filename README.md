@@ -22,48 +22,97 @@ def pairs(n):
 s = set(pairs(1_000_000))
 gc.collect()
 t = time.perf_counter(); gc.collect(); print(f"{time.perf_counter() - t:.2f}s")
-# 3.14.6: 0.12s   3.14.10: 1.53s   3.15.2: 1.51s
+# 3.14.6: 0.12s   3.14.10: 1.50s   3.15.2: 1.44s
 ```
 
 ## The change
 
-All merged 26 June 2026. Timing: 2nd full GC after `set(gen)` of 1M objects
-(`results/versions.txt`; main is a source build, `results/other-types.txt`).
+All merged 26 June 2026. A full `gc.collect()` after `set(gen)` of 1M objects (the 2nd
+after the build), on source builds of the last ref without the change and the first with
+it (`results/the-change.txt`):
 
-| branch | gh-152235 PRs | last release without → first with | before → after |
+| branch | gh-152235 PRs | without → with | full GC: without → with |
 |---|---|---|---|
-| main | gh-152237, gh-152273, gh-152290 | (3.16, in development) | 0.74 s |
-| 3.15 | gh-152242, gh-152278, gh-152316 | 3.15.0b3 → 3.15.0b4 (every 3.15 release) | 3.15.2: 1.12 s |
-| 3.14 | gh-152243, gh-152279, gh-152312 | 3.14.6 → 3.14.7 | 0.11 s → 1.12 s (3.14.10) |
-| 3.13 | gh-152272, gh-152280, gh-152319 | 3.13.14 → 3.13.15 | 0.12 s → 1.35 s (3.13.18) |
+| main | gh-152237, gh-152273, gh-152290 | `55bc3126e0a` → `908f438e198` (gh-152237) | 0.12 s → 1.15 s |
+| 3.15 | gh-152242, gh-152278, gh-152316 | 3.15.0b3 → 3.15.0b4 | 0.13 s → 1.15 s |
+| 3.14 | gh-152243, gh-152279, gh-152312 | 3.14.6 → 3.14.7 | 0.12 s → 1.15 s |
+| 3.13 | gh-152272, gh-152280, gh-152319 | 3.13.14 → 3.13.15 | 0.13 s → 1.28 s |
 
-3.10.22 and 3.12.16: 0.12 s. Free-threaded 3.14.6t and 3.14.10t: 0.09 s. With 1M
-`(pd.Timestamp, int)` tuples: 0.17-0.32 s on 3.14.6, 1.50-1.55 s on 3.14.10
-(`results/pandas.txt`). 3.15+ compiles a literal `set(x for x in ...)` into an inline
-loop, so that one form is fast there; generators made elsewhere, `map()` and `zip()` are not.
+Every later release has it, and so does today's main (0.69 s: its collector has got
+faster, but the set is still behind its elements).
+
+The pixi environments are stock conda-forge builds, unpatched (`results/versions.txt`,
+`results/pandas.txt`):
+
+| environment | CPython | `set(gen)` tracked | full GC after `set(gen)` | with `(pd.Timestamp, int)`: literal genexpr / generator from a function |
+|---|---|---|---|---|
+| py310, py312 | 3.10.22, 3.12.16 | ahead of its elements | 0.12 s | |
+| py31314 | 3.13.14 | ahead | 0.12 s | |
+| py31318 | 3.13.18 | behind | 1.25 s | |
+| py3146, pd3146 | 3.14.6 | ahead | 0.11 s | 0.17 s / 0.32 s |
+| py31410, pd31410 | 3.14.10 | behind | 1.07 s | 1.50 s / 1.38 s |
+| py315 | 3.15.2 | behind | 1.06 s | |
+| ft3146, ft31410 | 3.14.6t, 3.14.10t | n/a (free-threaded: no GC list) | 0.09 s | |
+
+(3.15+ compiles a literal `set(x for x in ...)` inline, so that one form is fast there;
+generators made elsewhere, `map()` and `zip()` are not.)
 
 ## Running it
 
+See the problem on the stock interpreters:
+
 ```sh
-pixi run -e py31410 perf          # slowdown per constructor pattern (repro/gc_order_perf.py)
-pixi run -e py31410 other-types   # which containers and patterns (repro/other_types.py)
+pixi run -e py31410 perf          # 3.14.10: set constructors vs a baseline (repro/gc_order_perf.py)
+pixi run -e py3146 perf           # 3.14.6, before the change: all ok
+pixi run -e py31410 other-types   # other containers and patterns (repro/other_types.py)
 pixi run -e pd31410 pandas        # with pandas Timestamps
 pixi run -e ft3146 race           # the free-threaded race gh-152235 fixed (also race-frozenset)
 pixi run -e py3146 gil            # what a half-built set breaks with the GIL
-bash tools/run-matrix.sh repro/gc_order_perf.py --check-order   # every interpreter
+bash tools/run-matrix.sh repro/gc_order_perf.py --check-order   # every environment and build
+```
 
-pixi run build-cpython main main/revive-in-address-order   # -> .scratch/build/main-revive-in-address-order/python
-pixi run build-cpython main none                           # unpatched baseline
-pixi run build-cpython v3.14.10 3.14/gc-api debug          # MODE: release, debug, ft, ft-debug
+Each script first prints which interpreter it runs on, whether it carries a patch from
+this repo, and whether `set(gen)` is tracked behind its elements. Each row then prints
+as it is measured (a few seconds each), with a verdict against the `s.update(gen)` row,
+which builds the same set but tracks it first:
+
+```
+$ pixi run -e py31410 perf
+Full gc.collect() times after building a set of 1,000,000 (Key, int) tuples
+  Python 3.14.10: conda-forge build, unpatched
+  set(gen) is GC-tracked behind its elements (gh-152235's change)
+  ...
+  s=set(); s.update(gen)             1st  0.10s  2nd  0.10s  set ahead   baseline
+  {x for x in gen}                   1st  0.10s  2nd  0.10s  set ahead   ok
+  set(gen)                           1st  0.74s  2nd  1.07s  set behind  slow (10x)
+  frozenset(gen)                     1st  0.71s  2nd  1.07s  set behind  slow (10x)
+  ...
+```
+
+Try a fix: build CPython from source (linux-64, a few minutes) with a patch set, then run
+the same scripts with it:
+
+```sh
+pixi run build-cpython v3.14.10 none                           # -> .scratch/build/v3.14.10/python
+pixi run build-cpython v3.14.10 3.14/revive-in-address-order   # -> .scratch/build/v3.14.10-revive-in-address-order/python
+.scratch/build/v3.14.10/python repro/other_types.py                           # slow rows
+.scratch/build/v3.14.10-revive-in-address-order/python repro/other_types.py   # all ok
+```
+
+`build-cpython REF [PATCHSET] [MODE]`: REF is `main` (commit
+`4497fe9889105b1abc6d633971e84ee9f78bd3b8`), a tag or a commit; PATCHSET is `none` or a
+directory under `patches/` (`main/*` for main, `3.15|3.14|3.13/*` for v3.15.2, v3.14.10,
+v3.13.18); MODE is release, debug, ft or ft-debug. Sources come from GitHub
+(`CPYTHON_ARCHIVE` sets a mirror). To compare builds:
+
+```sh
 B=.scratch/build
 pixi run -e py31410 python tools/compare-gc.py -r 3 --cpu 2 main=$B/main/python revive=$B/main-revive-in-address-order/python
 pixi run -e py31410 python tools/count-instructions.py main=$B/main/python revive=$B/main-revive-in-address-order/python
 ```
 
 Environments: py310 py312 py31314 py31318 py3146 py31410 py315, ft3146 ft31410
-(free-threaded), pd3146 pd31410 (pandas); linux-64 and osx-arm64, source builds linux-64.
-Patches apply to main `4497fe9889105b1abc6d633971e84ee9f78bd3b8` and to v3.15.2, v3.14.10,
-v3.13.18, downloaded from GitHub (`CPYTHON_ARCHIVE` sets a mirror).
+(free-threaded), pd3146 pd31410 (pandas), for linux-64 and osx-arm64.
 
 ## Why it happens
 
@@ -77,19 +126,19 @@ marked reachable in place and nothing moves.
 
 | pattern | 3.10 | 3.14.6 | 3.14.10 | 3.15.2 | main |
 |---|---|---|---|---|---|
-| `set(gen)` | 0.12 s | 0.11 s | 1.16 s | 1.18 s | 0.74 s |
-| `set([K() ...])`, list then dropped | 1.44 s | 1.18 s | 1.16 s | 1.14 s | 0.70 s |
-| `frozenset(tuple(gen))` | 1.35 s | 1.15 s | 1.16 s | 1.17 s | 0.72 s |
-| `s = set(); s.update(gen)` | 0.12 s | 0.11 s | 0.12 s | 0.12 s | 0.11 s |
-| `dict`, `frozendict` (3.15+), `tuple`, `list` from a generator | 0.04-0.05 s | 0.04-0.05 s | 0.04 s | 0.04-0.05 s | 0.03-0.04 s |
+| `s = set(); s.update(gen)` (baseline) | 0.11 s | 0.11 s | 0.11 s | 0.11 s | 0.11 s |
+| `set(gen)` | 0.12 s | 0.11 s | 1.06 s | 1.10 s | 0.69 s |
+| `set([K() ...])`, list then dropped | 1.34 s | 1.18 s | 1.08 s | 1.13 s | 0.70 s |
+| `frozenset(tuple(gen))` | 1.38 s | 1.07 s | 1.11 s | 1.08 s | 0.69 s |
+| `dict`, `frozendict` (3.15+), `tuple`, `list` from a generator | 0.04-0.05 s | 0.04 s | 0.04 s | 0.04 s | 0.04 s |
 
 - Only sets: dicts, frozendicts (also tracked late, gh-151722), lists and tuples traverse
   in insertion order, so relinking keeps creation order.
 - A set that becomes the only owner of existing objects (`set([K() ...])`,
   `s = set(d); del d`) was always slow, 3.10 included. Not a regression, same problem;
   revive-in-address-order fixes it, source-hint for lists and dicts.
-- main's collector is faster on scattered heaps than the release branches'; set-first
-  cases take 0.10-0.12 s everywhere.
+- main's collector is faster on scattered heaps than the release branches'; the
+  baseline takes 0.11 s everywhere.
 
 ## Why gh-152235 is still needed
 
@@ -102,7 +151,7 @@ Reverting it (what 3.14.6 does) brings back two bugs:
 - **GIL:** nothing is freed early (the filling C code holds a reference, so the set is a
   root), but a half-built frozenset found via `gc.get_objects()`/`get_referrers()` can
   cache a hash of a prefix and then isn't `==` to an equal frozenset. With a thread
-  hashing `gc.get_objects()`, 77/78 such frozensets break on 3.10 and 74/74 on 3.14.6;
+  hashing `gc.get_objects()`, 76/77 such frozensets break on 3.10 and 76/76 on 3.14.6;
   none on 3.14.10 or 3.15.2 (`results/gil-halfbuilt.txt`). Rare, but wrong.
 
 ## Candidate fixes for main
@@ -159,11 +208,9 @@ tests and NEWS. They add and remove the same lines as main, except 3.13 gc-api
 
 | build | `set(gen)` | `set([K() ...])`, list dropped | `frozenset(tuple(gen))` |
 |---|---|---|---|
-| v3.15.2 / + gc-api / + revive | 1.07 / 0.12 / 0.13 s | 1.15 / 1.14 / 0.13 s | 1.14 / 1.15 / 0.13 s |
-| v3.14.10 / + gc-api / + revive | 1.17 / 0.12 / 0.13 s | 1.18 / 1.23 / 0.14 s | 1.18 / 1.11 / 0.14 s |
-| v3.13.18 / + gc-api / + revive | 1.47 / 0.14 / 0.15 s | 1.73 / 1.46 / 0.15 s | 1.70 / 1.48 / 0.15 s |
-
-(3.13.18 ran as the machine got busier; quiet, its slow cases take 1.3-1.4 s.)
+| v3.15.2 / + gc-api / + revive | 1.13 / 0.12 / 0.13 s | 1.14 / 1.14 / 0.14 s | 1.15 / 1.11 / 0.14 s |
+| v3.14.10 / + gc-api / + revive | 1.12 / 0.12 / 0.14 s | 1.12 / 1.13 / 0.14 s | 1.13 / 1.13 / 0.14 s |
+| v3.13.18 / + gc-api / + revive | 1.36 / 0.13 / 0.15 s | 1.32 / 1.26 / 0.15 s | 1.36 / 1.31 / 0.15 s |
 
 Tests (`results/backports-tests*.txt`), per branch and for `patches/main/tp-alloc`: new
 tests fail without the patch, pass with it; set/GC/weakref/finalization suites (+
@@ -188,14 +235,15 @@ and 3.13.18; 100 / 100 with tp-alloc, default and free-threaded.
 - One shared machine (load in each results file): x86-64 Rocky 8, AMD EPYC Genoa, 64
   cores, 188 GiB. Source builds: conda-forge GCC 15.3, `-O3`, no PGO/LTO; compare them
   with each other, not with release binaries.
-- GC times on one pinned core, medians of 3 (interleaved runs for the main comparison).
+- GC times on one pinned core, medians of 3 (interleaved runs for the main comparison
+  and the change table).
   Per-call cost: `perf stat` instructions, `PYTHONHASHSEED=0`. Workload and per-call
   costs measured on main only; the backports change the same code.
-- Free-threaded `gc.get_objects()` walks heap pages: ignore the order column there.
+- Free-threaded builds keep no GC list, so the scripts skip the order checks there.
 
 ## Layout
 
-- `repro/`: `gc_order_perf.py` (slowdown + order check), `other_types.py`,
+- `repro/`: `gc_order_perf.py` (slowdown + order check), `other_types.py`, `describe.py` (the header each script prints),
   `pandas_timestamps.py`, `ft_race.py`, `gil_halfbuilt.py`, `gc_bench.py`,
   `instr_loop.py`, `test_set_gc_order.py` (extra gc-api tests)
 - `tools/`: `build-cpython.sh`, `compare-gc.py`, `count-instructions.py`,

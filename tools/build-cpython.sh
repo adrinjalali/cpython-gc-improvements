@@ -71,5 +71,7 @@ PKG_CONFIG_LIBDIR="$CONDA_PREFIX/lib/pkgconfig:$CONDA_PREFIX/share/pkgconfig" \
   ./configure --with-openssl="$CONDA_PREFIX" \
     --with-builtin-hashlib-hashes=md5,sha1,sha2,sha3 "${flags[@]}" > configure.log 2>&1
 make -j"${JOBS:-$(nproc)}" > make.log 2>&1
+# The reproducers print this, so their output says which build they ran on.
+printf 'ref=%s\ncommit=%s\npatchset=%s\nmode=%s\n' "$ref" "$src_ref" "$patchset" "$mode" > build-info.txt
 ./python -c 'import sys; print(sys.version)'
 echo "built $dir/python"

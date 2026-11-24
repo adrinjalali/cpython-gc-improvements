@@ -1,79 +1,121 @@
-# repro/other_types.py, 2nd full collection after building (1M elements); 2026-11-19; load average: 4.51, 14.18, 21.13
+# repro/other_types.py, 2nd full collection after building (1M elements); 2026-11-24; load average: 1.68, 3.78, 2.95
 [py310]
-# 3.10.22
-set(gen)                             0.12s
-set([listcomp]) (list dropped)       1.44s
-frozenset(tuple(gen))                1.35s
-s.update(gen)                        0.12s
-dict(gen of items)                   0.05s
-dict(zip(range, [listcomp]))         0.05s
-frozendict(gen of items)           (no frozendict)
-tuple(gen)                           0.05s
-list(gen)                            0.04s
+Full gc.collect() time after building a container of 1,000,000 GC-tracked elements
+  Python 3.10.22: conda-forge build, unpatched
+  set(gen) is GC-tracked ahead of its elements
+  Per row: build, collect once, then the median of 3 more full collections
+  (a few seconds per row). "slow" = over 3x the s.update(gen) row, which builds
+  the same set but tracks it before its elements.
+
+  s.update(gen)                        0.11s  baseline
+  set(gen)                             0.12s  ok
+  set([listcomp]) (list dropped)       1.34s  slow (12x): elements scattered in memory
+  frozenset(tuple(gen))                1.38s  slow (12x): elements scattered in memory
+  dict(gen of items)                   0.05s  ok
+  dict(zip(range, [listcomp]))         0.04s  ok
+  frozendict(gen of items)             (no frozendict in this version)
+  tuple(gen)                           0.05s  ok
+  list(gen)                            0.04s  ok
 [py3146]
-# 3.14.6
-set(gen)                             0.11s
-set([listcomp]) (list dropped)       1.18s
-frozenset(tuple(gen))                1.15s
-s.update(gen)                        0.11s
-dict(gen of items)                   0.05s
-dict(zip(range, [listcomp]))         0.04s
-frozendict(gen of items)           (no frozendict)
-tuple(gen)                           0.04s
-list(gen)                            0.04s
+Full gc.collect() time after building a container of 1,000,000 GC-tracked elements
+  Python 3.14.6: conda-forge build, unpatched
+  set(gen) is GC-tracked ahead of its elements
+  Per row: build, collect once, then the median of 3 more full collections
+  (a few seconds per row). "slow" = over 3x the s.update(gen) row, which builds
+  the same set but tracks it before its elements.
+
+  s.update(gen)                        0.11s  baseline
+  set(gen)                             0.11s  ok
+  set([listcomp]) (list dropped)       1.18s  slow (11x): elements scattered in memory
+  frozenset(tuple(gen))                1.07s  slow (10x): elements scattered in memory
+  dict(gen of items)                   0.04s  ok
+  dict(zip(range, [listcomp]))         0.04s  ok
+  frozendict(gen of items)             (no frozendict in this version)
+  tuple(gen)                           0.04s  ok
+  list(gen)                            0.04s  ok
 [py31410]
-# 3.14.10
-set(gen)                             1.16s
-set([listcomp]) (list dropped)       1.16s
-frozenset(tuple(gen))                1.16s
-s.update(gen)                        0.12s
-dict(gen of items)                   0.04s
-dict(zip(range, [listcomp]))         0.04s
-frozendict(gen of items)           (no frozendict)
-tuple(gen)                           0.04s
-list(gen)                            0.04s
+Full gc.collect() time after building a container of 1,000,000 GC-tracked elements
+  Python 3.14.10: conda-forge build, unpatched
+  set(gen) is GC-tracked behind its elements (gh-152235's change)
+  Per row: build, collect once, then the median of 3 more full collections
+  (a few seconds per row). "slow" = over 3x the s.update(gen) row, which builds
+  the same set but tracks it before its elements.
+
+  s.update(gen)                        0.11s  baseline
+  set(gen)                             1.06s  slow (9x): elements scattered in memory
+  set([listcomp]) (list dropped)       1.08s  slow (10x): elements scattered in memory
+  frozenset(tuple(gen))                1.11s  slow (10x): elements scattered in memory
+  dict(gen of items)                   0.04s  ok
+  dict(zip(range, [listcomp]))         0.04s  ok
+  frozendict(gen of items)             (no frozendict in this version)
+  tuple(gen)                           0.04s  ok
+  list(gen)                            0.04s  ok
 [py315]
-# 3.15.2
-set(gen)                             1.18s
-set([listcomp]) (list dropped)       1.14s
-frozenset(tuple(gen))                1.17s
-s.update(gen)                        0.12s
-dict(gen of items)                   0.05s
-dict(zip(range, [listcomp]))         0.04s
-frozendict(gen of items)             0.04s
-tuple(gen)                           0.04s
-list(gen)                            0.04s
+Full gc.collect() time after building a container of 1,000,000 GC-tracked elements
+  Python 3.15.2: conda-forge build, unpatched
+  set(gen) is GC-tracked behind its elements (gh-152235's change)
+  Per row: build, collect once, then the median of 3 more full collections
+  (a few seconds per row). "slow" = over 3x the s.update(gen) row, which builds
+  the same set but tracks it before its elements.
+
+  s.update(gen)                        0.11s  baseline
+  set(gen)                             1.10s  slow (10x): elements scattered in memory
+  set([listcomp]) (list dropped)       1.13s  slow (11x): elements scattered in memory
+  frozenset(tuple(gen))                1.08s  slow (10x): elements scattered in memory
+  dict(gen of items)                   0.04s  ok
+  dict(zip(range, [listcomp]))         0.04s  ok
+  frozendict(gen of items)             0.04s  ok
+  tuple(gen)                           0.04s  ok
+  list(gen)                            0.04s  ok
 [main]
-# 3.16.0a2+dev
-set(gen)                             0.74s
-set([listcomp]) (list dropped)       0.70s
-frozenset(tuple(gen))                0.72s
-s.update(gen)                        0.11s
-dict(gen of items)                   0.04s
-dict(zip(range, [listcomp]))         0.04s
-frozendict(gen of items)             0.04s
-tuple(gen)                           0.04s
-list(gen)                            0.03s
+Full gc.collect() time after building a container of 1,000,000 GC-tracked elements
+  Python 3.16.0a2+dev: source build of main, unpatched
+  set(gen) is GC-tracked behind its elements (gh-152235's change)
+  Per row: build, collect once, then the median of 3 more full collections
+  (a few seconds per row). "slow" = over 3x the s.update(gen) row, which builds
+  the same set but tracks it before its elements.
+
+  s.update(gen)                        0.11s  baseline
+  set(gen)                             0.69s  slow (7x): elements scattered in memory
+  set([listcomp]) (list dropped)       0.70s  slow (7x): elements scattered in memory
+  frozenset(tuple(gen))                0.69s  slow (7x): elements scattered in memory
+  dict(gen of items)                   0.04s  ok
+  dict(zip(range, [listcomp]))         0.04s  ok
+  frozendict(gen of items)             0.04s  ok
+  tuple(gen)                           0.04s  ok
+  list(gen)                            0.04s  ok
 [main-gc-api]
-# 3.16.0a2+dev
-set(gen)                             0.10s
-set([listcomp]) (list dropped)       0.74s
-frozenset(tuple(gen))                0.74s
-s.update(gen)                        0.10s
-dict(gen of items)                   0.04s
-dict(zip(range, [listcomp]))         0.04s
-frozendict(gen of items)             0.04s
-tuple(gen)                           0.04s
-list(gen)                            0.03s
+Full gc.collect() time after building a container of 1,000,000 GC-tracked elements
+  Python 3.16.0a2+dev: source build of main, with patches/main/gc-api
+  set(gen) is GC-tracked ahead of its elements
+  Per row: build, collect once, then the median of 3 more full collections
+  (a few seconds per row). "slow" = over 3x the s.update(gen) row, which builds
+  the same set but tracks it before its elements.
+
+  s.update(gen)                        0.10s  baseline
+  set(gen)                             0.10s  ok
+  set([listcomp]) (list dropped)       0.73s  slow (7x): elements scattered in memory
+  frozenset(tuple(gen))                0.71s  slow (7x): elements scattered in memory
+  dict(gen of items)                   0.04s  ok
+  dict(zip(range, [listcomp]))         0.04s  ok
+  frozendict(gen of items)             0.04s  ok
+  tuple(gen)                           0.03s  ok
+  list(gen)                            0.03s  ok
 [main-revive-in-address-order]
-# 3.16.0a2+dev
-set(gen)                             0.11s
-set([listcomp]) (list dropped)       0.11s
-frozenset(tuple(gen))                0.11s
-s.update(gen)                        0.11s
-dict(gen of items)                   0.04s
-dict(zip(range, [listcomp]))         0.04s
-frozendict(gen of items)             0.04s
-tuple(gen)                           0.04s
-list(gen)                            0.04s
-# at the end: load average: 3.40, 10.90, 19.20
+Full gc.collect() time after building a container of 1,000,000 GC-tracked elements
+  Python 3.16.0a2+dev: source build of main, with patches/main/revive-in-address-order
+  set(gen) is GC-tracked behind its elements (gh-152235's change)
+  Per row: build, collect once, then the median of 3 more full collections
+  (a few seconds per row). "slow" = over 3x the s.update(gen) row, which builds
+  the same set but tracks it before its elements.
+
+  s.update(gen)                        0.10s  baseline
+  set(gen)                             0.11s  ok
+  set([listcomp]) (list dropped)       0.11s  ok
+  frozenset(tuple(gen))                0.11s  ok
+  dict(gen of items)                   0.04s  ok
+  dict(zip(range, [listcomp]))         0.04s  ok
+  frozendict(gen of items)             0.04s  ok
+  tuple(gen)                           0.04s  ok
+  list(gen)                            0.04s  ok
+# at the end: load average: 1.58, 3.12, 2.80

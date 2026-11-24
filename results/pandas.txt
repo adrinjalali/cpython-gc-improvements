@@ -1,6 +1,20 @@
-# repro/pandas_timestamps.py (pixi task pandas); 2026-11-19; load average: 11.04, 10.70, 17.86
+# repro/pandas_timestamps.py (pixi task pandas); 2026-11-24; load average: 2.80, 2.95, 2.77
 [pd3146]
-3.14.6 pandas 3.1.1: literal set(genexpr) 0.17s, set(generator from a function) 0.32s
+Full gc.collect() time after building a set of 1M (pd.Timestamp, int) tuples
+  Python 3.14.6: conda-forge build, unpatched
+  set(gen) is GC-tracked ahead of its elements
+  pandas 3.1.1; the 2nd full collection after the build, about 10 s in all.
+  Before gh-152235 both take ~0.2-0.3 s; with it, ~1.5 s (only the second on 3.15+).
+
+  literal set(genexpr)             0.17s
+  set(generator from a function)   0.32s
 [pd31410]
-3.14.10 pandas 3.1.1: literal set(genexpr) 1.55s, set(generator from a function) 1.50s
-# at the end: load average: 9.54, 10.36, 17.56
+Full gc.collect() time after building a set of 1M (pd.Timestamp, int) tuples
+  Python 3.14.10: conda-forge build, unpatched
+  set(gen) is GC-tracked behind its elements (gh-152235's change)
+  pandas 3.1.1; the 2nd full collection after the build, about 10 s in all.
+  Before gh-152235 both take ~0.2-0.3 s; with it, ~1.5 s (only the second on 3.15+).
+
+  literal set(genexpr)             1.50s
+  set(generator from a function)   1.38s
+# at the end: load average: 2.32, 2.83, 2.74

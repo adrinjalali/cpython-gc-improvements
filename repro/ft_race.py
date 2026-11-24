@@ -26,6 +26,10 @@ def main():
     ap.add_argument("-n", type=int, default=50_000)
     a = ap.parse_args()
     build = set if a.kind == "set" else frozenset
+    from describe import header
+    header(f"Can another thread reach a half-built {a.kind}? ({a.rounds} rounds)",
+           "Before gh-152235 it can, and reads it while the fill resizes it,",
+           "which can crash the process (exit 139 = segfault).")
     if getattr(sys, "_is_gil_enabled", lambda: True)():
         print("note: GIL enabled; this needs a free-threaded build to race")
 
